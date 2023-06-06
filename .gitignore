@@ -2,7 +2,7 @@
 dacapo.yaml
 
 # temp
-*.n5
+*.n5/
 *.pkl
 
 # Byte-compiled / optimized / DLL files

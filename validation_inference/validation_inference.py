@@ -11,9 +11,14 @@ import torch
 
 from funlib.evaluate import rand_voi,detection_scores
 import numpy as np
-from funlib.persistence import open_ds
 import sys
 from funlib.segment.arrays import relabel
+from funlib.geometry import Roi
+
+from dacapo.experiments.datasplits.datasets.arrays import (ZarrArrayConfig, CropArrayConfig, IntensitiesArrayConfig)
+from dacapo.experiments.datasplits.datasets import RawGTDatasetConfig
+
+from dacapo.experiments.datasplits.datasets import RawGTDataset
 
 
 def rvoi(X, Y):
@@ -21,9 +26,33 @@ def rvoi(X, Y):
     return o["voi_split"] + o["voi_merge"]
 
 
+def get_updated_validation_dataset(run):
+    gt_config = ZarrArrayConfig(
+        name="plasmodesmata",
+        file_name=Path("/nrs/cellmap/ackermand/cellmap/leaf-gall/jrc_22ak351-leaf-3m.n5"),
+        dataset="larger_validation_crop",
+    )
+
+    val_gt_config = CropArrayConfig(
+        "val_gt", source_array_config=gt_config, roi=Roi((19952, 9736, 153344), (13464, 14064, 15104))
+    )
+
+    raw_config = ZarrArrayConfig(
+        name="raw",
+        file_name=Path("/nrs/stern/em_data/jrc_22ak351-leaf-3m/jrc_22ak351-leaf-3m.n5"),
+        dataset="em/fibsem-uint8/s0",
+    )
+    # We get an error without this, and will suggests having it as such https://cell-map.slack.com/archives/D02KBQ990ER/p1683762491204909
+    raw_config = IntensitiesArrayConfig(
+        name="raw", source_array_config=raw_config, min=0, max=255
+    )
+    validation_data_config = RawGTDatasetConfig("val", raw_config=raw_config, gt_config=val_gt_config)#, mask_config=mask_config
+    return RawGTDataset(validation_data_config)
+
+
 def validation_inference(run_name, iteration):
     #run_name = "finetuned_3d_lsdaffs_plasmodesmata_pseudorandom_training_centers_maxshift_18_upsample-unet_default_v2__0"
-    outpath = Path(f"/nrs/cellmap/ackermand/validation_inference/{run_name}")
+    outpath = Path(f"/nrs/cellmap/ackermand/validation_inference_new_region/{run_name}")
 
     config_store = create_config_store()
     run_config = config_store.retrieve_run_config(run_name)
@@ -41,13 +70,13 @@ def validation_inference(run_name, iteration):
     weights = weights_store.retrieve_weights(run, iteration)
     run.model.load_state_dict(weights.model)
 
-    validation_dataset = run.datasplit.validate[0]
+    validation_dataset = get_updated_validation_dataset(run) #run.datasplit.validate[0]
 
     torch.backends.cudnn.benchmark = True
     run.model.eval()
     iteration_name = f"iteration_{iteration}"
     prediction_array_identifier = LocalArrayIdentifier(
-        outpath / "predictions.n5",
+        outpath / "predictions_larger_validation_crop.n5",
         iteration_name
     )
 

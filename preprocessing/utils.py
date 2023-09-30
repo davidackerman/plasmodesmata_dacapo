@@ -5,10 +5,25 @@ from tqdm import tqdm
 from numcodecs.gzip import GZip
 import os
 
+import socket
+import neuroglancer
+import numpy as np
+
+import neuroglancer
+import neuroglancer.cli
+import struct
+import os
+import struct
+import numpy as np
+import json
+import pandas as pd
+from tqdm import tqdm
+import shutil
 class PreprocessCylindricalAnnotations:
 
     def __init__(self, 
                  annotation_csvs,
+                 validation_or_test_rois,
                  raw_n5="/nrs/stern/em_data/jrc_22ak351-leaf-3m/jrc_22ak351-leaf-3m.n5",
                  raw_dataset_name="em/fibsem-uint8/s0",
                  output_n5="/nrs/cellmap/ackermand/cellmap/leaf-gall/jrc_22ak351-leaf-3m.n5",
@@ -18,6 +33,7 @@ class PreprocessCylindricalAnnotations:
         if not isinstance(annotation_csvs, list):
             annotation_csvs = [annotation_csvs]
         self.annotation_csvs = annotation_csvs
+        self.validation_or_test_rois = validation_or_test_rois
         zarr_file = zarr.open(raw_n5, mode="r")
         self.raw_dataset = zarr_file[raw_dataset_name]
         self.output_n5 = output_n5
@@ -55,20 +71,20 @@ class PreprocessCylindricalAnnotations:
         return set(map(tuple, p[is_in_cylinder]))
 
     def extract_annotation_information(self):
-        resolution = np.array(self.raw_dataset.attrs.asdict()["transform"]["scale"])
+        self.resolution = np.array(self.raw_dataset.attrs.asdict()["transform"]["scale"])
         # https://cell-map.slack.com/archives/C04N9JUFQK1/p1683733456153269
         
         df = pd.concat([pd.read_csv(annotation_csv) for annotation_csv in self.annotation_csvs])
 
         self.pd_starts = (
             np.array([df["start x (nm)"], df["start y (nm)"], df["start z (nm)"]]).T
-            / resolution
+            / self.resolution
         )
         self.pd_ends = (
-            np.array([df["end x (nm)"], df["end y (nm)"], df["end z (nm)"]]).T / resolution
+            np.array([df["end x (nm)"], df["end y (nm)"], df["end z (nm)"]]).T / self.resolution
         )
         self.pd_centers = list(
-            map(tuple, np.round(((self.pd_starts + self.pd_ends) * resolution / 2)).astype(int))
+            map(tuple, np.round(((self.pd_starts + self.pd_ends) * self.resolution / 2)).astype(int))
         )
 
     def get_negative_examples(filename="annotations_20230620_221638.csv"):
@@ -164,27 +180,32 @@ class PreprocessCylindricalAnnotations:
         intersection_voxels = np.array(list(self.intersection_voxels_set))
         ds[intersection_voxels[:, 2], intersection_voxels[:, 1], intersection_voxels[:, 0]] = 0
 
-    def temp(self):
+    def remove_validation_or_test_annotations_from_training(self):
 
-        def point_is_valid_center(pt, edge_length):
-            # a point is considerd a valid center if the input bounding box for it does not cross the validation crop
+        def point_is_valid_center_for_current_roi(pt, edge_length, offset, shape):
+             # a point is considered a valid center if the input bounding box for it does not cross the validation crop
             if np.all((pt + edge_length) >= offset) and np.all(
-                (pt - edge_length) <= (offset + dimensions)
+                (pt - edge_length) <= (offset + shape)
             ):
                 # then it overlaps validation
                 return False
             return True
-
-        def too_close_to_validation(pd_start, pd_end, edge_length):
+        
+        def point_is_valid_center(pt, edge_length):
+            for roi in self.validation_or_test_rois:
+                if not point_is_valid_center_for_current_roi(pt, edge_length, roi.offset, roi.shape):
+                    return False
+            return True
+        
+        def too_close_to_rois(pd_start, pd_end, edge_length):
             # either the start or end will be furthest from the box
             return not (
                 point_is_valid_center(pd_start, edge_length)
                 or point_is_valid_center(pd_end, edge_length)
             )
-
-
+            
         self.pseudorandom_training_centers = []
-        removed_ids = []
+        self.removed_ids = []
         for id, pd_start, pd_end in tqdm(
             zip(list(range(1, len(self.pd_starts) + 1)), self.pd_starts, self.pd_ends), total=len(self.pd_starts)
         ):
@@ -197,7 +218,7 @@ class PreprocessCylindricalAnnotations:
             # NB: since we want to make sure that we are far enough away from the validation to ensure that no validation voxels affect training voxels
             # we must make sure the distance is at least the run.model.eval_input_shape/2 = 288/2 = 144
             edge_length = 144 + 1  # add one for padding since we round later on
-            if not too_close_to_validation(pd_start, pd_end, edge_length):
+            if not too_close_to_rois(pd_start, pd_end, edge_length):
                 random_coordinate_along_annotation = (
                     pd_start + (pd_end - pd_start) * np.random.rand()
                 )
@@ -212,14 +233,121 @@ class PreprocessCylindricalAnnotations:
                         low=-max_shift, high=max_shift, size=3
                     )
                 self.pseudorandom_training_centers.append(
-                    tuple(np.round(center * resolution).astype(int))
+                    tuple(np.round(center * self.resolution).astype(int))
                 )
             else:
-                c = np.round(((pd_start + pd_end) * resolution / 2)).astype(int)
-                if tuple(c) not in removed_centers:
-                    print(pd_start, pd_end)
-                    removed_ids.append(id)
-        len(pseudorandom_training_centers), len(pd_starts)
+                #c = np.round(((pd_start + pd_end) * self.resolution / 2)).astype(int)
+                self.removed_ids.append(id)
+        print(f"number of original centers: {len(self.pd_starts)}, number of training centers: {len(self.pseudorandom_training_centers)}")
         # if self.use_negative_examples:
         #     pseudorandom_training_centers += negative_example_centers
-        print(len(pseudorandom_training_centers))
+
+    def write_out_removed_annotations(self):
+        annotation_type = "line"
+        output_directory = "/groups/cellmap/cellmap/ackermand/Programming/plasmodesmata_dacapo/preprocessing/removed_annotations"
+        if os.path.isdir(output_directory):
+            shutil.rmtree(output_directory)
+        os.makedirs(f"{output_directory}/spatial0")
+        if annotation_type == "line":
+            coords_to_write = 6
+        else:
+            coords_to_write = 3
+
+        annotations = np.column_stack((self.pd_starts, self.pd_ends))*self.resolution[0]
+        annotations = np.array([annotations[id-1,:] for id in self.removed_ids])
+        with open(f"{output_directory}/spatial0/0_0_0", "wb") as outfile:
+            total_count = len(annotations)
+            buf = struct.pack("<Q", total_count)
+            for annotation in tqdm(annotations):
+                annotation_buf = struct.pack(f"<{coords_to_write}f", *annotation)
+                buf += annotation_buf
+            # write the ids at the end of the buffer as increasing integers
+            id_buf = struct.pack(
+                f"<{total_count}Q", *range(1, len(annotations) + 1, 1)
+            )  # so start at 1
+            # id_buf = struct.pack('<%sQ' % len(coordinates), 3,1 )#s*range(len(coordinates)))
+            buf += id_buf
+            outfile.write(buf)
+
+        max_extents = annotations.reshape((-1, 3)).max(axis=0) + 1
+        max_extents = [int(max_extent) for max_extent in max_extents]
+        info = {
+            "@type": "neuroglancer_annotations_v1",
+            "dimensions": {"x": [1, "nm"], "y": [1, "nm"], "z": [1, "nm"]},
+            "by_id": {"key": "by_id"},
+            "lower_bound": [0, 0, 0],
+            "upper_bound": max_extents,
+            "annotation_type": annotation_type,
+            "properties": [],
+            "relationships": [],
+            "spatial": [
+                {
+                    "chunk_size": max_extents,
+                    "grid_shape": [1, 1, 1],
+                    "key": "spatial0",
+                    "limit": 1,
+                }
+            ],
+        }
+
+        with open(f"{output_directory}/info", "w") as info_file:
+            json.dump(info, info_file)
+
+        print(output_directory.replace(
+            "/groups/cellmap/cellmap/ackermand/",
+            "precomputed://https://cellmap-vm1.int.janelia.org/dm11/ackermand/",
+        ))
+
+    def visualize_removed_annotations(self, roi):
+        def add_segmentation_layer(state, data, name):
+            dimensions = neuroglancer.CoordinateSpace(
+                names=["z", "y", "x"], units="nm", scales=[8, 8, 8]
+            )
+            state.dimensions = dimensions
+            state.layers.append(
+                name=name,
+                segments=[str(i) for i in np.unique(data[data > 0])],
+                layer=neuroglancer.LocalVolume(
+                    data=data,
+                    dimensions=neuroglancer.CoordinateSpace(
+                        names=["z", "y", "x"],
+                        units=["nm", "nm", "nm"],
+                        scales=[8, 8, 8],
+                        coordinate_arrays=[
+                            None,
+                            None,
+                            None,
+                        ],
+                    ),
+                    voxel_offset=(0, 0, 0),
+                ),
+            )
+
+        # get data
+        expand_by = 500
+        expanded_offset = np.array(roi.offset) - expand_by
+        expanded_dimension = np.array(roi.shape) + 2 * expand_by
+        ds = np.zeros(expanded_dimension, dtype=np.uint64)
+        for id, pd_start, pd_end, pd_center in tqdm(
+            zip(list(range(1, len(self.pd_starts) + 1)), self.pd_starts, self.pd_ends, self.pd_centers),
+            total=len(self.pd_starts),
+        ):
+            if id in self.removed_ids:
+                voxels_in_cylinder = np.array(list(self.in_cylinder(pd_start, pd_end, radius=4)))
+                if np.any(np.all(voxels_in_cylinder >= expanded_offset, axis=1) 
+                          & np.all(voxels_in_cylinder <= expanded_offset + expanded_dimension, axis=1)):
+                    ds[
+                        voxels_in_cylinder[:, 2] - expanded_offset[2],
+                        voxels_in_cylinder[:, 1] - expanded_offset[1],
+                        voxels_in_cylinder[:, 0] - expanded_offset[0],
+                    ] = id
+
+
+        neuroglancer.set_server_bind_address(
+            bind_address=socket.gethostbyname(socket.gethostname())
+        )
+        viewer = neuroglancer.Viewer()
+        with viewer.txn() as state:
+            add_segmentation_layer(state, ds, "removed")
+        print(viewer)
+        input("Press Enter to continue...")

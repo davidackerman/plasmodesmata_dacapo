@@ -27,7 +27,6 @@ from neuroglancer import AnnotationPropertySpec
 
 import warnings
 
-
 class VoxelNmConverter:
     def __init__(
         self,
@@ -50,36 +49,42 @@ class VoxelNmConverter:
 class PreprocessCylindricalAnnotations:
     def __init__(
         self,
+        username,
+        annotation_name,
+        radius,
         training_csvs: list[str] = [],
         training_validation_and_test_csvs: list[str] = [],
         rois_to_split_yml=None,
         rois_dict=None,
         mask_zarr=None,
         output_n5=None,
-        username="ackermand",
         dataset="jrc_22ak351-leaf-3m",
-        annotation_name="nuclear_pores",
         raw_n5="/nrs/cellmap/data/",
         raw_dataset_name="em/fibsem-uint8",
-        radius=4,
     ):
+        np.random.seed(0)  # set seed for consistency of locations
         self.training_csvs = training_csvs
+        if type(self.training_csvs) is not list:
+            self.training_csvs = [self.training_csvs]
         self.training_validation_and_test_csvs = training_validation_and_test_csvs
+        if type(self.training_validation_and_test_csvs) is not list:
+            self.training_validation_and_test_csvs = [
+                self.training_validation_and_test_csvs
+            ]
 
         if rois_dict:
             self.rois_dict = rois_dict
 
         self.username = username
         self.raw_dataset_name = raw_dataset_name
-        self.annotation_name = annotation_name + "_as_cylinders"
+        self.annotation_name = annotation_name  # + "_as_cylinders"
         self.dataset = dataset
         zarr_file = zarr.open(f"{raw_n5}/{dataset}/{dataset}.n5", mode="r")
         self.raw_dataset = zarr_file[raw_dataset_name + "/s0"]
-        self.output_n5 = f"{output_n5}/{self.annotation_name}.n5"
         if not mask_zarr:
             mask_zarr = f"/nrs/cellmap/{self.username}/cellmap/{self.annotation_name}/annotation_intersection_masks.zarr"
         if not output_n5:
-            output_n5 = f"/nrs/cellmap/{self.username}/cellmap/{self.annotation_name}"
+            output_n5 = f"/nrs/cellmap/{self.username}/cellmap/{self.annotation_name}/annotations_as_cylinders.n5"
         self.mask_zarr = mask_zarr
         self.output_n5 = output_n5
 
@@ -217,6 +222,7 @@ class PreprocessCylindricalAnnotations:
                 annotation_centers, whole_box_start, whole_box_end
             )
 
+            num_kept_annotations = 0
             for box_split in range(
                 whole_box_start[split_dimension], whole_box_end[split_dimension]
             ):
@@ -233,6 +239,9 @@ class PreprocessCylindricalAnnotations:
                         best_score = np.abs(desired_ratio - ratio)
                         first_box_end[split_dimension] = box_split
                         second_box_start[split_dimension] = box_split + 145
+                        num_kept_annotations = (
+                            annotations_in_first_half + annotations_in_second_half
+                        )
 
             first_box_start, first_box_end = get_minimal_bounding_box(
                 annotation_centers, whole_box_start, first_box_end
@@ -240,7 +249,7 @@ class PreprocessCylindricalAnnotations:
             second_box_start, second_box_end = get_minimal_bounding_box(
                 annotation_centers, second_box_start, whole_box_end
             )
-            return {
+            return num_kept_annotations, {
                 "first_box": {"start": first_box_start, "end": first_box_end},
                 "second_box": {"start": second_box_start, "end": second_box_end},
             }
@@ -314,39 +323,55 @@ class PreprocessCylindricalAnnotations:
             split_dimensions = np.argsort(roi_to_split.begin - roi_to_split.end)[
                 :2
             ]  # use box_start - box_end so that argsort does it in "descending" order
-            split_boxes = split_box_along_axis(
-                annotation_centers,
-                np.array(roi_to_split.begin),
-                np.array(roi_to_split.end),
-                split_dimensions[0],
-                desired_ratio=training_split_ratio,
-            )
+            max_volume = np.inf
+            max_num_kept_annotations = 0
+            for first_split_dimension in range(3):
+                _, split_boxes = split_box_along_axis(
+                    annotation_centers,
+                    np.array(roi_to_split.begin),
+                    np.array(roi_to_split.end),
+                    first_split_dimension,
+                    desired_ratio=training_split_ratio,
+                )
 
-            training_box = split_boxes["first_box"]
-            validation_and_testing_box = split_boxes["second_box"]
-            split_boxes = split_box_along_axis(
-                annotation_centers,
-                validation_and_testing_box["start"],
-                validation_and_testing_box["end"],
-                split_dimensions[1],
-                desired_ratio=validation_test_split_ratio,
-            )
-            validation_box = split_boxes["first_box"]
-            test_box = split_boxes["second_box"]
+                training_box = split_boxes["first_box"]
+                validation_and_testing_box = split_boxes["second_box"]
+                for second_split_dimension in range(3):
+                    current_num_kept_annotations, split_boxes = split_box_along_axis(
+                        annotation_centers,
+                        validation_and_testing_box["start"],
+                        validation_and_testing_box["end"],
+                        second_split_dimension,
+                        desired_ratio=validation_test_split_ratio,
+                    )
+                    validation_box = split_boxes["first_box"]
+                    test_box = split_boxes["second_box"]
 
-            # swap axes to get in z,y,x
-            training_roi = Roi(
-                training_box["start"][::-1] * voxel_size,
-                (training_box["end"] - training_box["start"])[::-1] * voxel_size,
-            )
-            validation_roi = Roi(
-                validation_box["start"][::-1] * voxel_size,
-                (validation_box["end"] - validation_box["start"])[::-1] * voxel_size,
-            )
-            test_roi = Roi(
-                test_box["start"][::-1] * voxel_size,
-                (test_box["end"] - test_box["start"])[::-1] * voxel_size,
-            )
+                    training_box_volume = np.prod(
+                        training_box["end"] - training_box["start"]
+                    )
+                    test_box_volume = np.prod(test_box["end"] - test_box["start"])
+
+                    current_max_volume = np.max([training_box_volume, test_box_volume])
+
+                    if current_num_kept_annotations > max_num_kept_annotations:
+                        # try to get smallest volumes as possible so you dont have weirdly large ones with huge empty gaps
+                        max_num_kept_annotations = current_num_kept_annotations
+                        # swap axes to get in z,y,x
+                        training_roi = Roi(
+                            training_box["start"][::-1] * voxel_size,
+                            (training_box["end"] - training_box["start"])[::-1]
+                            * voxel_size,
+                        )
+                        validation_roi = Roi(
+                            validation_box["start"][::-1] * voxel_size,
+                            (validation_box["end"] - validation_box["start"])[::-1]
+                            * voxel_size,
+                        )
+                        test_roi = Roi(
+                            test_box["start"][::-1] * voxel_size,
+                            (test_box["end"] - test_box["start"])[::-1] * voxel_size,
+                        )
 
             self.rois_dict["training"].append(training_roi)
             self.rois_dict["validation"].append(validation_roi)
@@ -383,7 +408,7 @@ class PreprocessCylindricalAnnotations:
         )
         return negative_example_centers
 
-    def write_annotations_as_cylinders_and_get_intersections(self, radius=4):
+    def write_annotations_as_cylinders_and_get_intersections(self, radius):
         # get all pd voxels and all overlapping/intersecting voxels between multiple pd
         all_annotation_voxels_set = set()
         self.intersection_voxels_set = set()
@@ -560,12 +585,7 @@ class PreprocessCylindricalAnnotations:
         # if self.use_negative_examples:
         #     pseudorandom_training_centers += negative_example_centers
 
-    def write_out_removed_annotations(self, output_directory=None):
-        if not output_directory:
-            output_directory = (
-                f"/groups/cellmap/cellmap/{self.username}/Programming/{self.dataset}/preprocessing/removed_annotations",
-            )
-
+    def write_out_annotations(self, output_directory, annotation_ids):
         annotation_type = "line"
         if os.path.isdir(output_directory):
             shutil.rmtree(output_directory)
@@ -579,7 +599,7 @@ class PreprocessCylindricalAnnotations:
             np.column_stack((self.annotation_starts, self.annotation_ends))
             * self.resolution[0]
         )
-        annotations = np.array([annotations[id - 1, :] for id in self.removed_ids])
+        annotations = np.array([annotations[id - 1, :] for id in annotation_ids])
         with open(f"{output_directory}/spatial0/0_0_0", "wb") as outfile:
             total_count = len(annotations)
             buf = struct.pack("<Q", total_count)
@@ -622,9 +642,9 @@ class PreprocessCylindricalAnnotations:
             f"/groups/cellmap/cellmap/{self.username}/",
             f"precomputed://https://cellmap-vm1.int.janelia.org/dm11/{self.username}/",
         )
-        print(f"removed annotations: {precomputed_path}")
+        print(f"annotations: {precomputed_path}")
 
-    def visualize_removed_annotations(self, roi, radius=4):
+    def visualize_removed_annotations(self, roi, radius):
         def add_segmentation_layer(state, data, name):
             dimensions = neuroglancer.CoordinateSpace(
                 names=["z", "y", "x"], units="nm", scales=[8, 8, 8]
@@ -694,9 +714,16 @@ class PreprocessCylindricalAnnotations:
         input("Press Enter to continue...")
 
     def get_neuroglancer_view(self):
-        annotation_datetime = (
-            self.annotation_csvs[0].split("annotations_")[-1].split(".csv")[0]
-        )
+        if self.training_validation_and_test_csvs:
+            annotation_datetime = (
+                self.training_validation_and_test_csvs[0]
+                .split("annotations_")[-1]
+                .split(".csv")[0]
+            )
+        else:
+            annotation_datetime = (
+                self.training_csvs[0].split("annotations_")[-1].split(".csv")[0]
+            )
         url = f"https://neuroglancer-demo.appspot.com/#!%7B%22dimensions%22:%7B%22x%22:%5B1e-9%2C%22m%22%5D%2C%22y%22:%5B1e-9%2C%22m%22%5D%2C%22z%22:%5B1e-9%2C%22m%22%5D%7D%2C%22position%22:%5B0.0%2C0.0%2C0.0%5D%2C%22crossSectionScale%22:1%2C%22projectionScale%22:16384%2C%22layers%22:%5B%7B%22type%22:%22image%22%2C%22source%22:%22n5://https://cellmap-vm1.int.janelia.org/nrs/data/{self.dataset}/{self.dataset}.n5/{self.raw_dataset_name}/%22%2C%22tab%22:%22source%22%2C%22name%22:%22fibsem-uint8%22%7D%2C%7B%22type%22:%22annotation%22%2C%22source%22:%22precomputed://https://cellmap-vm1.int.janelia.org/dm11/{self.username}/neuroglancer_annotations/{self.annotation_name}/splitting/{self.dataset}/bounding_boxes%22%2C%22tab%22:%22rendering%22%2C%22shader%22:%22%5Cnvoid%20main%28%29%20%7B%5Cn%20%20setColor%28prop_box_color%28%29%5Cn%20%20%20%20%20%20%20%20%20%20%29%3B%5Cn%7D%5Cn%22%2C%22name%22:%22bounding_boxes%22%7D%2C%7B%22type%22:%22segmentation%22%2C%22source%22:%22n5://https://cellmap-vm1.int.janelia.org/nrs/{self.username}/cellmap/{self.annotation_name}/{self.annotation_name}.n5/{self.dataset}/%22%2C%22tab%22:%22source%22%2C%22segments%22:%5B%5D%2C%22name%22:%22{self.annotation_name}%22%7D%2C%7B%22type%22:%22annotation%22%2C%22source%22:%22precomputed://https://cellmap-vm1.int.janelia.org/dm11/{self.username}/neuroglancer_annotations/{annotation_datetime}%22%2C%22tab%22:%22source%22%2C%22name%22:%22{annotation_datetime}%22%7D%5D%2C%22selectedLayer%22:%7B%22visible%22:true%2C%22layer%22:%2220230830_155757%22%7D%2C%22layout%22:%224panel%22%7D"
         print(url)
 
@@ -705,11 +732,20 @@ class PreprocessCylindricalAnnotations:
             output_directory=f"/groups/cellmap/cellmap/{self.username}/neuroglancer_annotations/{self.annotation_name}/splitting/{self.dataset}/bounding_boxes",
         )
         self.extract_annotation_information()
-        # self.write_annotations_as_cylinders_and_get_intersections(radius=self.radius)
-        # self.write_intersection_mask()
+        self.write_annotations_as_cylinders_and_get_intersections(radius=self.radius)
+        self.write_intersection_mask()
         self.remove_validation_or_test_annotations_from_training()
         if self.removed_ids:
-            self.write_out_removed_annotations(
-                output_directory=f"/groups/cellmap/cellmap/{self.username}/neuroglancer_annotations/{self.annotation_name}/removed_annotations/{self.dataset}/removed_annotations"
+            self.write_out_annotations(
+                output_directory=f"/groups/cellmap/cellmap/{self.username}/neuroglancer_annotations/{self.annotation_name}/removed_annotations/{self.dataset}/removed_annotations",
+                annotation_ids=self.removed_ids,
+            )
+            self.write_out_annotations(
+                output_directory=f"/groups/cellmap/cellmap/{self.username}/neuroglancer_annotations/{self.annotation_name}/removed_annotations/{self.dataset}/kept_annotations",
+                annotation_ids=[
+                    id
+                    for id in range(1, len(self.annotation_starts) + 1)
+                    if id not in self.removed_ids
+                ],
             )
         # self.get_neuroglancer_view()

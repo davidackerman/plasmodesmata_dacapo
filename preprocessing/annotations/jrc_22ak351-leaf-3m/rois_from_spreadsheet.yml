@@ -1,0 +1,37 @@
+rois:
+  - name: original_small_validation_box
+    start: [219200, 16000, 42400]
+    end: [221600, 17600, 44000]
+    split_dimension: null
+  - name: 02
+    start: [82296, 22807, 24711]
+    end: [86158, 38502, 42287]
+    split_dimension: 2
+  - name: 03
+    start: [209178, 25021, 76191]
+    end: [227354, 37121, 86969]
+    split_dimension: 0
+  - name: 06
+    start: [232290, 31813, 23255]
+    end: [244258, 38493, 36494]
+    split_dimension: 0
+  - name: 07
+    start: [222988, 29194, 22489]
+    end: [229119, 37710, 27529]
+    split_dimension: 1
+  - name: 08
+    start: [35000, 25000, 31000]
+    end: [43000, 31000, 43000]
+    split_dimension: 2
+  - name: 09
+    start: [11633, 13641, 28105]
+    end: [21010, 22250, 39005]
+    split_dimension: 2
+  - name: 10
+    start: [146331, 23417, 55168]
+    end: [161646, 35599, 69391]
+    split_dimension: 1
+  - name: 11
+    start: [55793, 13257, 46041]
+    end: [74542, 28223, 57651]
+    split_dimension: 1

@@ -1,0 +1,46 @@
+rois:
+  - name: original_small_validation_box
+    x: 219200-221600
+    y: 16000-17600
+    z: 42400-44000
+    split_dimension: "don't split"
+  - name: 02
+    x: 82296-86158
+    y: 22807-38502
+    z: 24711-42287
+    split_dimension: "z"
+  - name: 03
+    x: 209178-227354
+    y: 25021-37121
+    z: 76191-86969
+    split_dimension: "x"
+  - name: 06
+    x: 232290-244258
+    y: 31813-38493
+    z: 23255-36494
+    split_dimension: "x"
+  - name: 07
+    x: 222988-229119
+    y: 29194-37710
+    z: 22489-27529
+    split_dimension: "y"
+  - name: 08
+    x: 35000-43000
+    y: 25000-31000
+    z: 31000-43000
+    split_dimension: "z"
+  - name: 09
+    x: 11633-21010
+    y: 13641-22250
+    z: 28105-39005
+    split_dimension: "z"
+  - name: 10
+    x: 146331-161646
+    y: 23417-35599
+    z: 55168-69391
+    split_dimension: "y"
+  - name: 11
+    x: 55793-74542
+    y: 13257-28223
+    z: 46041-57651
+    split_dimension: "y"

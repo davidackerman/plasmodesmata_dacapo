@@ -1,0 +1,45 @@
+dataset: jrc_22ak351-leaf-2l
+runs: 
+  - finetuned_3d_lsdaffs_weight_ratio_0.50_plasmodesmata_pseudorandom_training_centers_maxshift_18_more_annotations_unet_default_v2_no_dataset_predictor_node_lr_5E-5__1
+iterations: [140000, 140000, 5000]
+rois:
+  - name: 0
+    path: /groups/cellmap/cellmap/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-2l/annotations_20231215_150235.csv
+    start: [47984, 25480, 15480]
+    end: [64784, 43240, 28512]
+    split_dimension: null
+  - name: 1
+    path: /groups/cellmap/cellmap/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-2l/annotations_20231215_150243.csv
+    start: [118872, 20920, 24928]
+    end: [136872, 41664, 36616]
+    split_dimension: null
+  - name: 2
+    path: /groups/cellmap/cellmap/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-2l/annotations_20231215_150254.csv
+    start: [90992, 17224, 11416]
+    end: [106680, 37994, 22760]
+    split_dimension: null
+  - name: 3
+    path: /groups/cellmap/cellmap/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-2l/annotations_20231215_150259.csv
+    start: [73368, 25624, 25424]
+    end: [90872, 31784, 41216]
+    split_dimension: null
+  - name: 4
+    path: /groups/cellmap/cellmap/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-2l/annotations_20231215_150306.csv
+    start: [25352, 23968, 16376]
+    end: [44768, 34128, 32192]
+    split_dimension: null
+  - name: 5
+    path: /groups/cellmap/cellmap/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-2l/annotations_20231215_150318.csv
+    start: [16336, 4256, 27544]
+    end: [27288, 18880, 33544]
+    split_dimension: null
+# the following lines are for calculating instance metrics
+gt_array: 
+  filename: /nrs/cellmap/ackermand/cellmap/leaf-gall/jrc_22ak351-leaf-2l.n5
+  ds_name: plasmodesmata_as_cylinders
+test_array:
+  base_filename: /nrs/cellmap/ackermand/predictions/jrc_22ak351-leaf-2l/jrc_22ak351-leaf-2l.n5
+mask_array:
+  filename: /nrs/cellmap/ackermand/cellmap/leaf-gall/prediction_masks.zarr
+  ds_name: dilation_iterations_3_jrc_22ak351-leaf-2l
+postprocessing_suffixes: [_filter_val_0.5_lrb_ratio_-0.08_adj_0.5_lr_-1.2_segs]

@@ -7,6 +7,25 @@ import pickle
 import os
 import scipy
 import json
+import logging
+
+logging.basicConfig(
+    format="%(asctime)s %(levelname)-8s %(message)s",
+    level=logging.INFO,
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger(__name__)
+
+# encoder for uint64 from https://stackoverflow.com/a/57915246
+class NpEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super(NpEncoder, self).default(obj)
 
 
 class InstanceSegmentationOverlap:
@@ -63,8 +82,7 @@ class InstanceSegmentationOverlap:
             mask_begin_voxels[2] : mask_end_voxels[2],
         ]
 
-        # test_block = np.multiply(test_block, mask_block)
-
+        test_block = np.multiply(test_block, mask_block)
         out_dict = {}
         # taken from funlib.evaluate detection
         # change logical_and to logical_or since we want total counts
@@ -106,7 +124,6 @@ class InstanceSegmentationOverlap:
                         )
 
         # vs = np.array(list(test_id_counts.values()))
-
         test_id_renumbering = {test_id: i for i, test_id in enumerate(test_ids)}
         gt_id_renumbering = {gt_id: i for i, gt_id in enumerate(gt_ids)}
         # n_test = len(test_ids) - 1
@@ -119,7 +136,7 @@ class InstanceSegmentationOverlap:
             gt_test_overlaps[gt_id_renumbering[gt_id], test_id_renumbering[test_id]] = v
 
         combined_dict = {
-            "test_gt_counts": gt_test_counts,
+            "gt_test_counts": gt_test_counts,
             "gt_id_renumbering": gt_id_renumbering,
             "test_id_renumbering": test_id_renumbering,
             "gt_test_overlaps": gt_test_overlaps,
@@ -137,6 +154,7 @@ class InstanceSegmentationOverlap:
                 ),
                 num_workers=self.num_workers,
                 task_id="block_processing",
+                fit="shrink",
             )
             # add export of scores
             daisy.run_blockwise([task])
@@ -145,8 +163,11 @@ class InstanceSegmentationOverlap:
 
 
 class InstanceSegmentationScorer:
-    def __init__(self, gt_test_overlaps):
-        self.gt_test_overlaps = gt_test_overlaps
+    def __init__(self, overlap_dict):
+        self.gt_test_overlaps = overlap_dict["gt_test_overlaps"]
+        self.gt_test_counts = overlap_dict["gt_test_counts"]
+        self.gt_id_renumbering = overlap_dict["gt_id_renumbering"]
+        self.test_id_renumbering = overlap_dict["test_id_renumbering"]
 
     def __get_matches(self, array_to_optimize):
         gt_idxs, test_idxs = scipy.optimize.linear_sum_assignment(
@@ -161,25 +182,46 @@ class InstanceSegmentationScorer:
         return matches
 
     def __get_f1_score(self):
+        # overlap f1 score
         gt_test_overlaps_without_background = self.gt_test_overlaps[1:, 1:]
         matches = self.__get_matches(gt_test_overlaps_without_background)
         n_gt, n_test = gt_test_overlaps_without_background.shape
         tp = len(matches)
         fp = n_test - tp
         fn = n_gt - tp
+        f1_score = tp / (tp + 0.5 * (fp + fn))
 
+        # iou score
         iou = self.__get_iou()
         average_iou = np.mean(
             [iou[gt_idx - 1, test_idx - 1] for (gt_idx, test_idx) in matches]
         )
 
-        return {
+        # relevant ids
+        all_test_ids = list(self.test_id_renumbering.keys())
+        tp_test_ids = set(all_test_ids[test_idx] for (_, test_idx) in matches)
+        fp_test_ids = set(all_test_ids) - set([0])
+        fp_test_ids -= tp_test_ids
+
+        all_gt_ids = list(self.gt_id_renumbering.keys())
+        tp_gt_ids = set(all_gt_ids[gt_idx] for (gt_idx, _) in matches)
+        fn_gt_ids = set(all_gt_ids) - set([0])
+        fn_gt_ids -= tp_gt_ids
+
+        tp_gt_test_id_pairs = [[all_gt_ids[gt_idx], all_test_ids[test_idx]]for (gt_idx, test_idx) in matches]
+
+        output_dict = {
             "tp": tp,
             "fp": fp,
             "fn": fn,
-            "f1_score": tp / (tp + 0.5 * (fp + fn)),
+            "f1_score": f1_score,
             "iou": average_iou,
+            "tp_gt_test_id_pairs": tp_gt_test_id_pairs,
+            "fp_test_ids": list(fp_test_ids),
+            "fn_gt_ids": list(fn_gt_ids),
         }
+
+        return output_dict
 
     def __get_iou(self):
         # iou score
@@ -226,17 +268,17 @@ class InstanceSegmentationOverlapAndScorer:
 
     def process(self):
         iso = InstanceSegmentationOverlap(
-            self.gt_array,
-            self.test_array,
-            self.mask_array,
-            self.log_dir,
-            self.num_workers,
+            gt_array=self.gt_array,
+            test_array=self.test_array,
+            mask_array=self.mask_array,
+            log_dir=self.log_dir,
+            num_workers=self.num_workers,
         )
         overlap_dict = iso.get_overlap_dict()
 
-        iss = InstanceSegmentationScorer(overlap_dict["gt_test_overlaps"])
+        iss = InstanceSegmentationScorer(overlap_dict)
         scores_dict = iss.get_scores()
 
         os.makedirs(self.output_directory, exist_ok=True)
         with open(f"{self.output_directory}/scores.json", "w") as fp:
-            json.dump(scores_dict, fp)
+            json.dump(scores_dict, fp, cls=NpEncoder)

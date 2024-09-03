@@ -1,0 +1,31 @@
+resolution: 8
+annotations:
+  split_by_rois:
+    - /groups/cellmap/cellmap/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-2l/annotations_20231215_150235.csv
+    - /groups/cellmap/cellmap/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-2l/annotations_20231215_150243.csv
+    - /groups/cellmap/cellmap/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-2l/annotations_20231215_150254.csv
+    - /groups/cellmap/cellmap/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-2l/annotations_20231215_150259.csv
+    - /groups/cellmap/cellmap/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-2l/annotations_20231215_150306.csv
+    - /groups/cellmap/cellmap/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-2l/annotations_20231215_150318.csv
+rois_to_split:
+  training_validation_test:
+    - roi_name: "01"
+      x: 118872-136872
+      y: 20920-41664
+      z: 24928-36616
+    - roi_name: "02"
+      x: 90992-106680
+      y: 17224-37994
+      z: 11416-22760
+    - roi_name: "03"
+      x: 73368-90872
+      y: 25624-31784
+      z: 25424-41216
+    - roi_name: "04"
+      x: 25352-44768
+      y: 23968-34128
+      z: 16376-32192
+    - roi_name: "05"
+      x: 16336-27288
+      y: 4256-18880
+      z: 27544-33544

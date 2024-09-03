@@ -1,4 +1,12 @@
 dataset: jrc_22ak351-leaf-3m
+gt_array: 
+  filename: /nrs/cellmap/ackermand/cellmap/leaf-gall/jrc_22ak351-leaf-3m.n5
+  ds_name: plasmodesmata_as_cylinders
+test_array:
+  base_filename: /nrs/cellmap/ackermand/predictions/jrc_22ak351-leaf-3m/jrc_22ak351-leaf-3m.n5
+mask_array:
+  filename: /nrs/cellmap/ackermand/cellpose/jrc_22ak351-leaf-3m/cellpose_results.n5
+  ds_name: raw_s4_inverted_cp_masks_from_jeff_inverted
 runs: 
   - finetuned_3d_lsdaffs_weight_ratio_0.50_plasmodesmata_pseudorandom_training_centers_maxshift_18_more_annotations_unet_default_v2_no_dataset_predictor_node_lr_5E-5__0
   - finetuned_3d_lsdaffs_weight_ratio_0.50_plasmodesmata_pseudorandom_training_centers_maxshift_18_more_annotations_unet_default_v2_no_dataset_predictor_node_lr_5E-5__1
@@ -11,14 +19,8 @@ runs:
   - finetuned_3d_lsdaffs_weight_ratio_1.00_plasmodesmata_pseudorandom_training_centers_maxshift_18_unet_default_v2_no_dataset_predictor_node_lr_5E-5__0
   - finetuned_3d_lsdaffs_weight_ratio_1.00_plasmodesmata_pseudorandom_training_centers_maxshift_18_unet_default_v2_no_dataset_predictor_node_lr_5E-5__1
 iterations: [100000, 200000, 5000]
-training_validation_test_roi_info: /groups/cellmap/cellmap/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-3m/training_validation_test_roi_info.yml
-# the following lines are for calculating instance metrics
-gt_array: 
-  filename: /nrs/cellmap/ackermand/cellmap/leaf-gall/jrc_22ak351-leaf-3m.n5
-  ds_name: plasmodesmata_as_cylinders
-test_array:
-  base_filename: /nrs/cellmap/ackermand/predictions/jrc_22ak351-leaf-3m/jrc_22ak351-leaf-3m.n5
-mask_array:
-  filename: /nrs/cellmap/ackermand/cellpose/jrc_22ak351-leaf-3m/cellpose_results.n5
-  ds_name: raw_s4_inverted_cp_masks_from_jeff_inverted
-postprocessing_suffixes: [_filter_val_0.5_lrb_ratio_-0.08_adj_0.5_lr_-1.2_segs]
+postprocessing_suffixes:
+  - _filter_val_0.5_lrb_ratio_-0.08_adj_0.5_lr_-1.2_segs
+roi_names:
+  - cyan
+  - purple

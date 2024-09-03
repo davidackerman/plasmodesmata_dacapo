@@ -8,7 +8,7 @@ if __name__ == "__main__":
     iteration = sys.argv[2]
     crop = sys.argv[3]
     validation_or_test = sys.argv[4]
-    dataset = "jrc_22ak351-leaf-3m"
+    dataset = sys.argv[5]
     base_path = f"/nrs/cellmap/ackermand/predictions/{dataset}/{dataset}.n5"
     for adj_bias, lr_bias in [(0.5, -1.2)]:  # ,(0.1,-1.2)]:
         iteration_name = f"iteration_{iteration}"
@@ -30,9 +30,9 @@ if __name__ == "__main__":
             lr_bias_ratio=lr_bias_ratio,
             adj_bias=adj_bias,
             lr_bias=lr_bias,
-            nworkers_frags=45,
-            nworkers_lut=45,
-            nworkers_supervox=45,
+            nworkers_frags=62,
+            nworkers_lut=62,
+            nworkers_supervox=62,
             filter_val=filter_val,
             neighborhood=[
                 [1, 0, 0],

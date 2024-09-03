@@ -16,7 +16,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
 # encoder for uint64 from https://stackoverflow.com/a/57915246
 class NpEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -34,7 +33,7 @@ class InstanceSegmentationOverlap:
         self,
         gt_array: Array,
         test_array: Array,
-        mask_array: Array = None,
+        mask_array: Array,
         total_roi: Roi = None,
         log_dir: str = None,
         num_workers: int = 10,
@@ -64,27 +63,26 @@ class InstanceSegmentationOverlap:
         gt_block = self.gt_array.to_ndarray(block.read_roi, fill_value=0)
         test_block = self.test_array.to_ndarray(block.read_roi, fill_value=0)
 
-        if self.mask_array:
-            mask_roi = block.read_roi.snap_to_grid(self.mask_array.voxel_size)
-            # assume isotropic
-            mask_voxel_size = self.mask_array.voxel_size[0]
-            gt_voxel_size = self.gt_array.voxel_size[0]
-            scale_factor = int(mask_voxel_size / gt_voxel_size)
-            mask_block = self.mask_array.to_ndarray(mask_roi)
-            mask_block = (
-                mask_block.repeat(scale_factor, axis=0)
-                .repeat(scale_factor, axis=1)
-                .repeat(scale_factor, axis=2)
-            )
-            mask_begin_voxels = (block.read_roi.begin - mask_roi.begin) / gt_voxel_size
-            mask_end_voxels = mask_begin_voxels + Coordinate(gt_block.shape)
-            mask_block = mask_block[
-                mask_begin_voxels[0] : mask_end_voxels[0],
-                mask_begin_voxels[1] : mask_end_voxels[1],
-                mask_begin_voxels[2] : mask_end_voxels[2],
-            ]
+        mask_roi = block.read_roi.snap_to_grid(self.mask_array.voxel_size)
+        # assume isotropic
+        mask_voxel_size = self.mask_array.voxel_size[0]
+        gt_voxel_size = self.gt_array.voxel_size[0]
+        scale_factor = int(mask_voxel_size / gt_voxel_size)
+        mask_block = self.mask_array.to_ndarray(mask_roi)
+        mask_block = (
+            mask_block.repeat(scale_factor, axis=0)
+            .repeat(scale_factor, axis=1)
+            .repeat(scale_factor, axis=2)
+        )
+        mask_begin_voxels = (block.read_roi.begin - mask_roi.begin) / gt_voxel_size
+        mask_end_voxels = mask_begin_voxels + Coordinate(gt_block.shape)
+        mask_block = mask_block[
+            mask_begin_voxels[0] : mask_end_voxels[0],
+            mask_begin_voxels[1] : mask_end_voxels[1],
+            mask_begin_voxels[2] : mask_end_voxels[2],
+        ]
 
-            test_block = np.multiply(test_block, mask_block)
+        test_block = np.multiply(test_block, mask_block)
         out_dict = {}
         # taken from funlib.evaluate detection
         # change logical_and to logical_or since we want total counts
@@ -210,10 +208,7 @@ class InstanceSegmentationScorer:
         fn_gt_ids = set(all_gt_ids) - set([0])
         fn_gt_ids -= tp_gt_ids
 
-        tp_gt_test_id_pairs = [
-            [all_gt_ids[gt_idx], all_test_ids[test_idx]]
-            for (gt_idx, test_idx) in matches
-        ]
+        tp_gt_test_id_pairs = [[all_gt_ids[gt_idx], all_test_ids[test_idx]]for (gt_idx, test_idx) in matches]
 
         output_dict = {
             "tp": tp,
@@ -259,8 +254,8 @@ class InstanceSegmentationOverlapAndScorer:
         self,
         gt_array: Array,
         test_array: Array,
+        mask_array: Array,
         output_directory: str,
-        mask_array: Array = None,
         log_dir: str = None,
         num_workers: int = 10,
     ):

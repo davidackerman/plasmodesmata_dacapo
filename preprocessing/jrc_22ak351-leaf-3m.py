@@ -9,6 +9,7 @@ import getpass
 username = getpass.getuser()
 organelle = "plasmodesmata"
 dataset = "jrc_22ak351-leaf-3m"
+# %%
 radius = 4
 ca = CylindricalAnnotations(
     organelle=organelle,
@@ -78,4 +79,42 @@ run_config = config_store.retrieve_run_config(
 )
 run = Run(run_config)
 run.visualize_pipeline()
+# %% create prediction mask
+
+from funlib.persistence import open_ds, prepare_ds
+from funlib.geometry import Roi, Coordinate
+from scipy.ndimage import binary_dilation, distance_transform_edt
+import numpy as np
+
+from funlib.persistence import open_ds, prepare_ds
+from funlib.geometry import Roi, Coordinate
+from scipy.ndimage import binary_dilation, distance_transform_edt
+import numpy as np
+import pandas as pd
+from image_data_interface import ImageDataInterface
+
+cell_segmentation_paths = pd.read_csv("cell_segmentation_paths.csv")
+cell_segmentation_path = cell_segmentation_paths[
+    cell_segmentation_paths["dataset"] == dataset
+].iloc[0]["path"]
+
+output_voxel_size = Coordinate([256, 256, 256])
+idi = ImageDataInterface(cell_segmentation_path, output_voxel_size=output_voxel_size)
+
+inclusive_mask = 1 - (idi.to_ndarray_ts() > 0)
+
+for iterations in range(1, 4):
+    inclusive_mask_dilated = binary_dilation(inclusive_mask, iterations=iterations)
+
+    output_ds = prepare_ds(
+        "/nrs/cellmap/ackermand/cellmap/leaf-gall/prediction_masks.zarr",
+        f"dilation_iterations_{iterations}_{dataset}/s0",
+        total_roi=idi.roi,
+        voxel_size=output_voxel_size,
+        dtype=np.uint8,
+        write_size=Coordinate(np.array([64, 64, 64]) * output_voxel_size[0]),
+        delete=True,
+    )
+    output_ds[idi.roi] = inclusive_mask_dilated
+
 # %%

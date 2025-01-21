@@ -118,3 +118,54 @@ for iterations in range(1, 4):
     output_ds[idi.roi] = inclusive_mask_dilated
 
 # %%
+# Postprocessing
+import annotation_processing_utils.postprocess.get_best
+from importlib import reload
+
+reload(annotation_processing_utils.postprocess.get_best)
+from annotation_processing_utils.postprocess.get_best import GetBest
+import numpy as np
+
+gb = GetBest(
+    "/groups/cellmap/cellmap/ackermand/Programming/annotation-processing-utils/ignore/yamls/jrc_22ak351-leaf-3m.yaml"
+)
+df = gb.get_combined_df()
+
+# Group by the specified columns
+grouped = df.groupby(["run", "iteration", "validation_or_test"])
+# Aggregate statistics for each group
+aggregated = grouped.agg({"tp": "sum", "fp": "sum", "fn": "sum","iou": "mean"}).reset_index()
+aggregated["precision"] = aggregated["tp"] / (
+    aggregated["tp"] + aggregated["fp"]
+).replace(0, np.nan)
+aggregated["recall"] = aggregated["tp"] / (aggregated["tp"] + aggregated["fn"]).replace(
+    0, np.nan
+)
+failed = gb.f1_score()
+gb.plot_f1_scores("validation", plot_type="histogram", merge_repetitions=True)
+gb.plot_f1_scores("validation", merge_repetitions=False)
+
+# %%
+import matplotlib.pyplot as plt
+
+runs = aggregated["run"].unique()
+plt.figure(figsize=(10, 6))
+for run in runs:
+    run_data = aggregated[
+        (aggregated["validation_or_test"] == "validation") & (aggregated["run"] == run)
+    ]
+
+    data_subset = run_data[run_data["validation_or_test"] == "validation"]
+    plt.plot(
+        data_subset["iteration"],
+        data_subset["iou"],
+        label=f"{run}",
+    )
+
+plt.xlabel("Iteration")
+plt.ylabel("Score")
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# %%

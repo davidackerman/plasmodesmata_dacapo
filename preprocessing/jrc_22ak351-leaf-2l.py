@@ -24,7 +24,7 @@ ca = CylindricalAnnotations(
 )
 ca.standard_processing()
 # save ca to pkl
-ca.save(f"./{dataset}_cylindrical_annotations.pkl")
+#ca.save(f"./{dataset}_cylindrical_annotations.pkl")
 
 
 # %%
@@ -36,8 +36,8 @@ ca.save(f"./{dataset}_cylindrical_annotations.pkl")
 import time
 
 # lazy_results = []
-for lsds_to_affs_weight_ratio in [0.5, 1.0, 2.0]:
-    for batch_size in [2, 8]:
+for lsds_to_affs_weight_ratio in [0.5]:
+    for batch_size in [2]:
         # print current time
         print(time.ctime())
         ca.create_dacapo_run(
@@ -54,7 +54,7 @@ from dacapo.experiments import Run
 
 config_store = create_config_store()
 run_config = config_store.retrieve_run_config(
-    "finetuned_3d_lsdaffs_weight_ratio_0.5_jrc_22ak351-leaf-3m_plasmodesmata_all_training_points_unet_default_trainer_lr_0.00015_bs_6__0"
+    f"finetuned_3d_lsdaffs_weight_ratio_0.5_{dataset}_plasmodesmata_all_training_points_unet_default_trainer_lr_0.00005_bs_2__0"
 )
 run = Run(run_config)
 run.visualize_pipeline()
@@ -97,18 +97,18 @@ for iterations in range(1, 4):
     output_ds[idi.roi] = inclusive_mask_dilated
 
 # %%
-import numpy as np
-import yaml
+# import numpy as np
+# import yaml
 
-# Example NumPy array
-random_array = np.random.randint(0, 100, size=(100000, 3), dtype=np.int32)
+# # Example NumPy array
+# random_array = np.random.randint(0, 100, size=(100000, 3), dtype=np.int32)
 
-# Convert to a list of tuples
-tuple_list = [tuple(map(int, row)) for row in random_array]
+# # Convert to a list of tuples
+# tuple_list = [tuple(map(int, row)) for row in random_array]
 
-# Convert to YAML format
-yaml_output = yaml.dump(tuple_list, Dumper=yaml.Dumper)
+# # Convert to YAML format
+# yaml_output = yaml.dump(tuple_list, Dumper=yaml.Dumper)
 
-print(yaml_output)
+# print(yaml_output)
 
-# %%
+# # %%

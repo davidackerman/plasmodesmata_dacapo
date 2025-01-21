@@ -1,0 +1,23 @@
+resolution: 8
+annotations:
+  split_by_rois:
+      - /groups/scicompsoft/home/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-3mb/annotations_20250114_182135.csv
+      - /groups/scicompsoft/home/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-3mb/annotations_20250114_182342.csv
+      - /groups/scicompsoft/home/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-3mb/annotations_20250114_182457.csv
+rois_to_split:
+  validation_test:
+    - roi_name: "01"
+      x: 7776-8936
+      y: 2616-6024
+      z: 9884-11680
+      split_dimension: do_not_split
+    - roi_name: "02"
+      x: 11264-13464
+      y: 10176-11436
+      z: 11748-13924
+      split_dimension: do_not_split
+    - roi_name: "03"
+      x: 1204-3564
+      y: 13532-14872
+      z: 9856-12184
+      split_dimension: do_not_split

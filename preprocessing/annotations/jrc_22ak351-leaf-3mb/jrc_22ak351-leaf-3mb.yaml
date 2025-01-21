@@ -1,0 +1,23 @@
+runs: 
+  - finetuned_3d_lsdaffs_weight_ratio_0.5_jrc_22ak351-leaf-3m_plasmodesmata_all_training_points_unet_default_trainer_lr_0.00005_bs_2__0
+  - finetuned_3d_lsdaffs_weight_ratio_0.5_jrc_22ak351-leaf-3m_plasmodesmata_all_training_points_unet_default_trainer_lr_0.00005_bs_2__1
+  - finetuned_3d_lsdaffs_weight_ratio_0.5_jrc_22ak351-leaf-3m_plasmodesmata_all_training_points_unet_default_trainer_lr_0.00015_bs_6__0
+  - finetuned_3d_lsdaffs_weight_ratio_0.5_jrc_22ak351-leaf-3m_plasmodesmata_all_training_points_unet_default_trainer_lr_0.00015_bs_6__1
+  - finetuned_3d_lsdaffs_weight_ratio_0.5_jrc_22ak351-leaf-3m_plasmodesmata_all_training_points_unet_default_trainer_lr_0.0001_bs_2__0
+  - finetuned_3d_lsdaffs_weight_ratio_0.5_jrc_22ak351-leaf-3m_plasmodesmata_all_training_points_unet_default_trainer_lr_0.0001_bs_2__1
+  - finetuned_3d_lsdaffs_weight_ratio_0.5_jrc_22ak351-leaf-3m_plasmodesmata_all_training_points_unet_default_trainer_lr_0.0001_bs_4__0
+  - finetuned_3d_lsdaffs_weight_ratio_0.5_jrc_22ak351-leaf-3m_plasmodesmata_all_training_points_unet_default_trainer_lr_0.0001_bs_4__1
+  - finetuned_3d_lsdaffs_weight_ratio_0.5_jrc_22ak351-leaf-3m_plasmodesmata_all_training_points_unet_default_trainer_lr_0.0002_bs_4__0
+  - finetuned_3d_lsdaffs_weight_ratio_0.5_jrc_22ak351-leaf-3m_plasmodesmata_all_training_points_unet_default_trainer_lr_0.0002_bs_4__1
+  - finetuned_3d_lsdaffs_weight_ratio_0.5_jrc_22ak351-leaf-3m_plasmodesmata_all_training_points_unet_default_trainer_lr_0.0003_bs_6__0
+  - finetuned_3d_lsdaffs_weight_ratio_0.5_jrc_22ak351-leaf-3m_plasmodesmata_all_training_points_unet_default_trainer_lr_0.0003_bs_6__1
+iterations: [25000,500000,25000]
+analysis_info:
+  - name: jrc_22ak351-leaf-3mb
+    training_validation_test_roi_yaml: /groups/cellmap/cellmap/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-3mb/training_validation_test_roi_info.yaml
+    raw_path: /nrs/cellmap/data/jrc_22ak351-leaf-3mb/jrc_22ak351-leaf-3mb.n5/em/fibsem-uint8/s1
+    gt_path: /nrs/cellmap/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-3mb/s0
+    #mask_path: /nrs/cellmap/ackermand/cellmap/leaf-gall/prediction_masks.zarr/dilation_iterations_3_jrc_22ak351-leaf-3m/s0
+    inference_base_path: /nrs/cellmap/ackermand/predictions/leaf-gall/jrc_22ak351-leaf-3mb/jrc_22ak351-leaf-3mb.zarr
+    metrics_base_path: /nrs/cellmap/ackermand/validation_and_testing_scores/leaf-gall/jrc_22ak351-leaf-3mb
+postprocessing_suffixes: [_filter_val_0.5_lrb_ratio_-0.08_adj_0.5_lr_-1.2]

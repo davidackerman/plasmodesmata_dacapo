@@ -21,3 +21,28 @@ rois_to_split:
       y: 13532-14872
       z: 9856-12184
       split_dimension: do_not_split
+    - roi_name: "04"
+      x: 8497-9234
+      y: 8486-9484
+      z: 9070-10062
+      split_dimension: do_not_split
+    - roi_name: "05"
+      x: 7149-7971
+      y: 12370-12987
+      z: 9262-12290
+      split_dimension: do_not_split
+    - roi_name: "06"
+      x: 7235-8645
+      y: 7548-9155
+      z: 2-1225
+      split_dimension: do_not_split
+    - roi_name: "07"
+      x: 7407-8331
+      y: 6366-7794
+      z: 14559-16533
+      split_dimension: do_not_split
+    - roi_name: "08"
+      x: 8202-8979
+      y: 3814-5034
+      z: 4454-5930
+      split_dimension: do_not_split

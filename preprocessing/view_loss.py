@@ -28,7 +28,7 @@ for bs, base_lr, it in itertools.product(batch_sizes, base_lrs, [0, 1]):
         linestyle="-" if it == 0 else ":",
         color=random_color,
     )
-    plt.ylim(0, 1.0)
+    plt.ylim(0, 0.2)
 plt.legend()
 plt.show()
 # %%

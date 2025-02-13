@@ -7,7 +7,7 @@ runs:
   - finetuned_3d_lsdaffs_weight_ratio_0.5_combined_healthy_plasmodesmata_all_training_points_unet_default_trainer_lr_0.00005_bs_2__1
   - finetuned_3d_lsdaffs_weight_ratio_0.5_combined_healthy_and_gall_plasmodesmata_all_training_points_unet_default_trainer_lr_0.00005_bs_2__0
   - finetuned_3d_lsdaffs_weight_ratio_0.5_combined_healthy_and_gall_plasmodesmata_all_training_points_unet_default_trainer_lr_0.00005_bs_2__1
-iterations: [25000,50000,25000]
+iterations: [0,100000,25000]
 analysis_info:
   - name: jrc_22ak351-leaf-3mb
     training_validation_test_roi_yaml: /groups/cellmap/cellmap/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-3mb/training_validation_test_roi_info.yaml

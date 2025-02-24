@@ -11,37 +11,44 @@ rois_to_split:
       y: 7626-8315
       z: 7821-9066
       split_dimension: do_not_split
+      type_if_do_not_split: validation
     - roi_name: "02"
       x: 7118-8570
       y: 6684-7352
       z: 6450-7923
       split_dimension: do_not_split
+      type_if_do_not_split: test
     - roi_name: "03"
       x: 5334-7270
       y: 10934-12169
       z: 7689-9332
       split_dimension: do_not_split
+      type_if_do_not_split: validation
     - roi_name: "04"
       x: 8514-9442
       y: 7893-9039
       z: 9044-9993
       split_dimension: do_not_split
       keep_if_empty: True
+      type_if_do_not_split: test
     - roi_name: "05"
       x: 7102-7962
       y: 9806-10697
       z: 8989-10352
       split_dimension: do_not_split
       keep_if_empty: True
+      type_if_do_not_split: validation
     - roi_name: "06"
       x: 2486-4314
       y: 10593-11384
       z: 10468-11467
       split_dimension: do_not_split
       keep_if_empty: True
+      type_if_do_not_split: test
     - roi_name: "07"
       x: 11442-12845
       y: 14662-15634
       z: 11709-12406
       split_dimension: do_not_split
       keep_if_empty: True
+      type_if_do_not_split: validation

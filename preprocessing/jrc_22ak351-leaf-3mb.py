@@ -1,6 +1,12 @@
 # %%
 
 # Write out annotations
+import getpass
+
+username = getpass.getuser()
+organelle = "plasmodesmata"
+dataset = "jrc_22ak351-leaf-3mb"
+# %%
 import annotation_processing_utils.process.cylindrical_annotations
 from importlib import reload
 
@@ -8,12 +14,7 @@ reload(annotation_processing_utils.process.cylindrical_annotations)
 from annotation_processing_utils.process.cylindrical_annotations import (
     CylindricalAnnotations,
 )
-import getpass
 
-username = getpass.getuser()
-organelle = "plasmodesmata"
-dataset = "jrc_22ak351-leaf-3mb"
-# %%
 radius = 4
 ca = CylindricalAnnotations(
     organelle=organelle,
@@ -67,8 +68,9 @@ from importlib import reload
 reload(annotation_processing_utils.postprocess.get_best)
 from annotation_processing_utils.postprocess.get_best import GetBest
 
+print(dataset)
 gb = GetBest(
-    "/groups/scicompsoft/home/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/processing_yamls/jrc_22ak351-leaf-3mb.yaml"
+    f"/groups/scicompsoft/home/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/processing_yamls/{dataset}.yaml"
 )
 failed = gb.f1_score()
 gb.plot_f1_scores("validation", plot_type="histogram", merge_repetitions=True)
@@ -76,4 +78,14 @@ gb.plot_f1_scores("validation", plot_type="histogram", merge_repetitions=True)
 print(failed)
 # %%
 gb.all_f1_scores_df
+# %%
+# from annotation_processing_utils.process.training_validation_test_roi_calculator import (
+#     TrainingValidationTestRoiCalculator,
+# )
+
+# calc = TrainingValidationTestRoiCalculator(
+#     "/groups/scicompsoft/home/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-3mb/training_validation_test_roi_info.yaml"
+# )
+# calc.get_training_validation_test_rois()
+# calc.rois_dict
 # %%

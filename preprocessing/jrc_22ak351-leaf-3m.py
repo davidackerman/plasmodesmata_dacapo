@@ -81,41 +81,44 @@ run = Run(run_config)
 run.visualize_pipeline()
 # %% create prediction mask
 
-from funlib.persistence import open_ds, prepare_ds
-from funlib.geometry import Roi, Coordinate
-from scipy.ndimage import binary_dilation, distance_transform_edt
-import numpy as np
+# from funlib.persistence import open_ds, prepare_ds
+# from funlib.geometry import Roi, Coordinate
+# from scipy.ndimage import binary_dilation, distance_transform_edt
+# import numpy as np
 
-from funlib.persistence import open_ds, prepare_ds
-from funlib.geometry import Roi, Coordinate
-from scipy.ndimage import binary_dilation, distance_transform_edt
-import numpy as np
-import pandas as pd
-from image_data_interface import ImageDataInterface
+# from funlib.persistence import open_ds, prepare_ds
+# from funlib.geometry import Roi, Coordinate
+# from scipy.ndimage import binary_dilation, distance_transform_edt
+# import numpy as np
+# import pandas as pd
+# from image_data_interface import ImageDataInterface
+# from scipy.ndimage import distance_transform_edt
 
-cell_segmentation_paths = pd.read_csv("cell_segmentation_paths.csv")
-cell_segmentation_path = cell_segmentation_paths[
-    cell_segmentation_paths["dataset"] == dataset
-].iloc[0]["path"]
+# cell_segmentation_paths = pd.read_csv("cell_segmentation_paths.csv")
+# cell_segmentation_path = cell_segmentation_paths[
+#     cell_segmentation_paths["dataset"] == dataset
+# ].iloc[0]["path"]
 
-output_voxel_size = Coordinate([256, 256, 256])
-idi = ImageDataInterface(cell_segmentation_path, output_voxel_size=output_voxel_size)
+# output_voxel_size = Coordinate([256, 256, 256])
+# idi = ImageDataInterface(cell_segmentation_path, output_voxel_size=output_voxel_size)
 
-inclusive_mask = 1 - (idi.to_ndarray_ts() > 0)
+# cells = idi.to_ndarray_ts()
+# distance_outside_cell = distance_transform_edt(cells == 0)
 
-for iterations in range(1, 4):
-    inclusive_mask_dilated = binary_dilation(inclusive_mask, iterations=iterations)
+# for d in range(1, 4):
+#     inclusive_mask = distance_outside_cell <= d
+#     # inclusive_mask_dilated = binary_dilation(inclusive_mask, iterations=d)
 
-    output_ds = prepare_ds(
-        "/nrs/cellmap/ackermand/cellmap/leaf-gall/prediction_masks.zarr",
-        f"dilation_iterations_{iterations}_{dataset}/s0",
-        total_roi=idi.roi,
-        voxel_size=output_voxel_size,
-        dtype=np.uint8,
-        write_size=Coordinate(np.array([64, 64, 64]) * output_voxel_size[0]),
-        delete=True,
-    )
-    output_ds[idi.roi] = inclusive_mask_dilated
+#     output_ds = prepare_ds(
+#         "/nrs/cellmap/ackermand/cellmap/leaf-gall/prediction_masks.zarr",
+#         f"dilation_iterations_{d}_{dataset}/s0",
+#         total_roi=idi.roi,
+#         voxel_size=output_voxel_size,
+#         dtype=np.uint8,
+#         write_size=Coordinate(np.array([64, 64, 64]) * output_voxel_size[0]),
+#         delete=True,
+#     )
+#     output_ds[idi.roi] = inclusive_mask
 
 # %%
 # Postprocessing
@@ -134,7 +137,9 @@ df = gb.get_combined_df()
 # Group by the specified columns
 grouped = df.groupby(["run", "iteration", "validation_or_test"])
 # Aggregate statistics for each group
-aggregated = grouped.agg({"tp": "sum", "fp": "sum", "fn": "sum","iou": "mean"}).reset_index()
+aggregated = grouped.agg(
+    {"tp": "sum", "fp": "sum", "fn": "sum", "iou": "mean"}
+).reset_index()
 aggregated["precision"] = aggregated["tp"] / (
     aggregated["tp"] + aggregated["fp"]
 ).replace(0, np.nan)
@@ -168,4 +173,28 @@ plt.legend()
 plt.grid(True)
 plt.show()
 
+# # %%
+# import numpy as np
+# from scipy.ndimage import distance_transform_edt
+# import matplotlib.pyplot as plt
+
+# # Create a binary image (0 = object, 1 = background)
+# binary_array = np.array(
+#     [
+#         [0, 0, 1, 0, 0],
+#         [0, 1, 1, 1, 1],
+#         [1, 1, 1, 1, 1],
+#         [0, 1, 1, 1, 0],
+#         [0, 0, 1, 0, 0],
+#     ]
+# )
+
+# # Compute the Euclidean Distance Transform
+# edt = distance_transform_edt(binary_array)
+
+# # Display the result
+# plt.imshow(edt, cmap="viridis")
+# plt.colorbar(label="Distance")
+# plt.title("Euclidean Distance Transform (EDT)")
+# plt.show()
 # %%

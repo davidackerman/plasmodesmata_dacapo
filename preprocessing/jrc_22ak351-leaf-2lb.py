@@ -1,6 +1,12 @@
 # %%
 
 # Write out annotations
+import getpass
+
+username = getpass.getuser()
+organelle = "plasmodesmata"
+dataset = "jrc_22ak351-leaf-2lb"
+# %%
 import annotation_processing_utils.process.cylindrical_annotations
 from importlib import reload
 
@@ -8,12 +14,7 @@ reload(annotation_processing_utils.process.cylindrical_annotations)
 from annotation_processing_utils.process.cylindrical_annotations import (
     CylindricalAnnotations,
 )
-import getpass
 
-username = getpass.getuser()
-organelle = "plasmodesmata"
-dataset = "jrc_22ak351-leaf-2lb"
-# %%
 radius = 4
 ca = CylindricalAnnotations(
     organelle=organelle,

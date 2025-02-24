@@ -1,0 +1,1 @@
+NOTE we run these using cellmap_experiments environment and this `python scripts/submit.py predict -p configs/cellmap/predictions/plasmodesmata/2025-02-15_3r.yaml -w 100`

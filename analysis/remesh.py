@@ -94,7 +94,7 @@ def insert_points_allow_duplicates(mesh, new_points, tol: float = 1e-8):
     pts_by_face = defaultdict(list)
     for pt, f in zip(closest_pts, orig_faces):
         pts_by_face[f].append(pt)
-
+    
     # 5) Process each group
     for f_orig, pts in tqdm(pts_by_face.items(), desc="Inserting points"):
         for pt in pts:
@@ -497,7 +497,7 @@ if __name__ == "__main__":
     )
 
     # get all cells matching id
-    cell_id = 390
+    cell_id = 490 #390
     cell_plasmodesmata_coords = merged_df[merged_df["Cell ID"] == cell_id][
         [
             "Plasmodesmata COM Z (nm)",
@@ -520,12 +520,12 @@ if __name__ == "__main__":
     # Define new points to insert (make sure they lie in the triangle)
     new_points = np.array([[0.3, 0.3, 0.0], [0.2, 0.5, 0.0]])
 
-    # updated_vertices, updated_faces = insert_points_into_mesh_original(
-    #     cell_mesh, cell_plasmodesmata_coords
-    # )
-    updated_vertices_new, updated_faces_new = insert_points_allow_duplicates(
+    updated_vertices, updated_faces = insert_points_into_mesh_original(
         cell_mesh, cell_plasmodesmata_coords
     )
+    # updated_vertices_new, updated_faces_new = insert_points_allow_duplicates(
+    #     cell_mesh, cell_plasmodesmata_coords
+    # )
 
     # new_mesh = trimesh.Trimesh(
     #     vertices=updated_vertices, faces=updated_faces, process=False
@@ -539,25 +539,81 @@ if __name__ == "__main__":
     # %%
     import pygeodesic.geodesic as geodesic
     import matplotlib.pyplot as plt
-    id = 1000
+    # get indices of cell_plasmodesmata_coords in updated_vertices
+
+    #closest, dists, face_id = cell_mesh.nearest.on_surface(cell_plasmodesmata_coords)
+
+    indices = list(range(len(cell_mesh.vertices), len(cell_mesh.vertices) + len(cell_plasmodesmata_coords)))
     geoalg = geodesic.PyGeodesicAlgorithmExact(updated_vertices, updated_faces)
 
-    distance, _ = geoalg.geodesicDistances([id], list(range(len(updated_vertices))))
+    #distance, _ = geoalg.geodesicDistances([id], list(range(len(updated_vertices))))
     
-    geoalg = geodesic.PyGeodesicAlgorithmExact(updated_vertices_new, updated_faces_new)
-    distance_new, _ = geoalg.geodesicDistances([id], list(range(len(updated_vertices_new))))
-    for n,d,v in zip(["original","new"],[distance, distance_new],[updated_vertices,updated_vertices_new]):
-        fig = plt.figure()
-        ax = fig.add_subplot(111, projection="3d")
-        scatter = ax.scatter(
-            v[:, 0],
-            v[:, 1],
-            v[:, 2],
-            c=d,
-            cmap="viridis",
-        )
-        ax.set_title(n)
-        cbar = plt.colorbar(scatter)
+    #geoalg = geodesic.PyGeodesicAlgorithmExact(updated_vertices_new, updated_faces_new)
+
+    distance, _ = geoalg.geodesicDistances([indices[1000]], indices)
+    pt_on_mesh = updated_vertices[indices]
+    #for n,d,v in zip(["original","new"],[distance, distance_new],[updated_vertices,updated_vertices_new]):
+    # choose your renderer: "vscode" (Interactive pane) or "browser"
+    # %% plot
+    import plotly.graph_objects as go
+    import plotly.io as pio
+    pio.renderers.default = "vscode"
+
+    # ---- your data here ----
+    # closest = np.array([...])   # shape (N,3)
+    # distance = np.array([...])  # shape (N,)
+    # -------------------------
+
+    verts = cell_mesh.vertices
+    faces = cell_mesh.faces
+    # 1. Compute centroid of the mesh
+    center = verts.mean(axis=0)
+
+    # 2. Shrink toward the center by 90%
+    scale = 0.95
+    verts_shrunk = (verts - center) * scale + center
+
+    # Scatter trace (colored by distance)
+    scatter_trace = go.Scatter3d(
+        x=updated_vertices[len(verts):, 0],
+        y=updated_vertices[len(verts):, 1],
+        z=updated_vertices[len(verts):, 2],
+        mode='markers',
+        marker=dict(
+            size=4,
+            color=distance[:],
+            colorscale='Viridis',
+            colorbar=dict(title='Distance'),
+            opacity=0.8
+        ),
+        name='samples'
+    )
+
+    # Mesh trace (semi-transparent)
+    mesh_trace = go.Mesh3d(
+        x=verts_shrunk[:, 0],
+        y=verts_shrunk[:, 1],
+        z=verts_shrunk[:, 2],
+        i=faces[:, 0],   # first vertex index of each triangle
+        j=faces[:, 1],   # second
+        k=faces[:, 2],   # third
+        color='gray',
+        opacity=1.0,
+        name='cell mesh'
+    )
+
+    fig = go.Figure(data=[mesh_trace, scatter_trace])
+    fig.update_layout(
+        title="Cell Mesh with Distance-colored Samples",
+        scene=dict(
+            xaxis_title="X",
+            yaxis_title="Y",
+            zaxis_title="Z"
+        ),
+        autosize=True,
+    )
+
+    fig.show()
     # %%
     import pygeodesic.geodesic as geodesic
     import matplotlib.pyplot as plt
@@ -584,6 +640,7 @@ if __name__ == "__main__":
     faces = np.array([[0, 1, 2], [1, 2, 3], [3, 4, 5]])
     geoalg = geodesic.PyGeodesicAlgorithmExact(verts, faces)
     distance, path = geoalg.geodesicDistances([2], [3])
+
     print(distance, path)
     verts = np.array(
         [[0, 0, 0], [1, 0, 0], [0.5, 1, 0], [0.5, -1, 0], [0.5, 0, 0]]
@@ -706,4 +763,26 @@ mesh = cell_mesh
 closest_pts, dists, orig_faces = mesh.nearest.on_surface(cell_plasmodesmata_coords)
 
 len(closest_pts), len(np.unique(closest_pts,axis=0))
+# %%
+
+# %%
+import plotly.graph_objects as go
+import numpy as np
+
+# Sample data
+np.random.seed(42)
+x = np.random.rand(100)
+y = np.random.rand(100)
+z = np.random.rand(100)
+
+fig = go.Figure(data=[go.Scatter3d(
+    x=x, y=y, z=z,
+    mode='markers',
+    marker=dict(
+        size=5,
+        opacity=0.8
+    ),
+)])
+
+fig.show()
 # %%

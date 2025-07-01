@@ -16,266 +16,373 @@ from scipy.spatial import Delaunay
 import numpy as np
 
 
-def point_in_triangle_on_plane_vectorized(pt, v0, v1, v2, tol=1e-6):
+import numpy as np
+from scipy.spatial import Delaunay
+from collections import defaultdict
+
+
+import numpy as np
+from scipy.spatial import Delaunay
+from collections import defaultdict
+from trimesh.proximity import ProximityQuery
+import trimesh
+from trimesh.triangles import bounds_tree, points_to_barycentric
+from trimesh.bounds import contains
+import numpy as np
+from collections import defaultdict
+from tqdm import tqdm
+
+import numpy as np
+from collections import defaultdict
+from tqdm import tqdm
+
+def point_in_triangle(pt: np.ndarray, tri: np.ndarray, tol: float = 1e-8):
     """
-    Check if a single point pt lies inside many triangles defined by the arrays
-    of vertices v0, v1, v2. The point is assumed to lie on the plane of each triangle.
+    Compute barycentric coords of pt w.r.t. tri = [v0,v1,v2].
+    Return (inside, (alpha,beta,gamma)).
+    Allows small tolerance on edges/vertices.
+    """
+    v0, v1, v2 = tri
+    u = v1 - v0
+    v = v2 - v0
+    w = pt - v0
+
+    uu = np.dot(u, u)
+    uv = np.dot(u, v)
+    vv = np.dot(v, v)
+    wu = np.dot(w, u)
+    wv = np.dot(w, v)
+
+    D = uv * uv - uu * vv
+    # barycentric (beta, gamma) relative to v1,v2; alpha = 1 - beta - gamma
+    beta  = ( uv * wv - vv * wu) / D
+    gamma = ( uv * wu - uu * wv) / D
+    alpha = 1 - beta - gamma
+
+    inside = (alpha >= -tol) and (beta >= -tol) and (gamma >= -tol)
+    return inside, (alpha, beta, gamma)
+
+
+def build_edge_map(faces):
+    """Map undirected edge (i,j) with i<j → set of face-indices containing it."""
+    edge_to_faces = defaultdict(set)
+    for fid, f in enumerate(faces):
+        for a, b in ((0,1),(1,2),(2,0)):
+            i, j = sorted((f[a], f[b]))
+            edge_to_faces[(i,j)].add(fid)
+    return edge_to_faces
+
+def insert_points_allow_duplicates(mesh, new_points, tol: float = 1e-8):
+    """
+    Insert each point in `new_points` into `mesh` by splitting the triangle
+    it falls into. Duplicates are allowed—each identical point will be inserted.
+    Returns (updated_vertices, updated_faces).
+    """
+    # 1) Snap each new point to its nearest surface point and get its original face
+    closest_pts, dists, orig_faces = mesh.nearest.on_surface(new_points)
+
+    # 2) Work with Python lists so we can append/pop efficiently
+    vertices = mesh.vertices.tolist()
+    faces    = mesh.faces.tolist()
+
+    # 3) Build mappings: original_face → set(current_face_indices), and face_idx → original_face
+    n0 = len(faces)
+    orig_to_current = {i: {i} for i in range(n0)}
+    face_to_orig    = {i: i for i in range(n0)}
+
+    # 4) Batch points by their original face for a tiny speedup
+    pts_by_face = defaultdict(list)
+    for pt, f in zip(closest_pts, orig_faces):
+        pts_by_face[f].append(pt)
+
+    # 5) Process each group
+    for f_orig, pts in tqdm(pts_by_face.items(), desc="Inserting points"):
+        for pt in pts:
+            # 5a) Always get the up-to-date candidate faces
+            candidates = orig_to_current[f_orig]
+            found_fid = None
+
+            # 5b) Try to locate which current child face contains pt
+            for fid in candidates:
+                tri_idxs = faces[fid]
+                tri = np.array([vertices[i] for i in tri_idxs])
+                if point_in_triangle(pt, tri, tol):
+                    found_fid = fid
+                    break
+
+            # 5c) Fallback: if we didn’t find it geometrically, just split the first candidate
+            if found_fid is None:
+                # (this ensures we insert one vertex per pt)
+                found_fid = next(iter(candidates))
+
+            # 5d) Insert the new vertex
+            new_vid = len(vertices)
+            vertices.append(pt)
+
+            # 5e) Split the chosen face into 3
+            a, b, c = faces[found_fid]
+            new_faces = [
+                [a, b, new_vid],
+                [b, c, new_vid],
+                [c, a, new_vid],
+            ]
+
+            # 5f) Remove the old face by swapping in the last, then pop
+            last_idx = len(faces) - 1
+            faces[found_fid] = faces[last_idx]
+            faces.pop()
+
+            # 5g) Update mappings for the swapped‐in face (if any)
+            if found_fid < last_idx:
+                orig_swapped = face_to_orig[last_idx]
+                face_to_orig[found_fid] = orig_swapped
+                orig_to_current[orig_swapped].remove(last_idx)
+                orig_to_current[orig_swapped].add(found_fid)
+
+            # 5h) Add the 3 new faces and update mappings
+            base = len(faces)
+            faces.extend(new_faces)
+            for i in range(3):
+                fi = base + i
+                face_to_orig[fi]       = f_orig
+                orig_to_current[f_orig].add(fi)
+
+            # 5i) Remove the old face index from its original mapping
+            orig_to_current[f_orig].discard(found_fid)
+
+    # 6) Return as numpy arrays
+    return np.array(vertices), np.array(faces)
+
+def insert_points_into_mesh_new_most_advanced(mesh, new_points, tol: float = 1e-8):
+    """
+    Inserts each point by splitting only the triangle or edge it lies on.
+    Returns (new_vertices, new_faces) with exactly len(new_points) new vertices
+    and no crossing triangles.
+    """
+    # 1) snap & get original face for each pt
+    closest, dists, orig_faces = mesh.nearest.on_surface(new_points)
+
+    # 2) mutable lists
+    vertices = mesh.vertices.tolist()
+    faces    = mesh.faces.tolist()
+
+    # 3) build edge→faces mapping
+    edge_to_faces = build_edge_map(faces)
+
+    # 4) batch pts by their orig face
+    pts_by_face = defaultdict(list)
+    for pt, f0 in zip(closest, orig_faces):
+        pts_by_face[f0].append(pt)
+
+    # 5) process
+    for f0, pts in tqdm(pts_by_face.items(), desc="Inserting points"):
+        # dynamic set of current children of f0
+        # (we didn’t track an orig→current map, but we know f0 itself is still there
+        #  unless it’s already been split; in that case we still treat its children collectively)
+        # For simplicity, just scan faces whose barycentric test succeeds—
+        # there are very few of them per batch in practice.
+        for pt in pts:
+            # find any face that contains pt among ALL faces
+            # (this is O(total_faces), but only within each batch, and each batch is small)
+            found_fid = None
+            found_bary = None
+            for fid, f in enumerate(faces):
+                tri = np.array([vertices[i] for i in f])
+                inside, bary = point_in_triangle(pt, tri, tol)
+                if inside:
+                    found_fid, found_bary = fid, bary
+                    break
+
+            # fallback: if geometry failed, just split a random face in this batch
+            if found_fid is None:
+                # pick any face whose orig index was f0 originally
+                # we approximate by scanning for face_to_orig info if we had it,
+                # but simplest is to split the *first* face that used f0’s vertices:
+                for fid, f in enumerate(faces):
+                    if f0 in mesh.faces[fid]:
+                        found_fid = fid
+                        break
+                if found_fid is None:
+                    continue
+
+            alpha, beta, gamma = found_bary
+
+            new_vid = len(vertices)
+            vertices.append(pt)
+
+            # *** INTERIOR ***
+            if (alpha > tol) and (beta > tol) and (gamma > tol):
+                # split into 3
+                a, b, c = faces[found_fid]
+                new_tris = [[a,b,new_vid],[b,c,new_vid],[c,a,new_vid]]
+
+                # remove old face
+                last = len(faces)-1
+                faces[found_fid] = faces[last]
+                faces.pop()
+
+                # update edge map for removed face
+                for x,y in ((a,b),(b,c),(c,a)):
+                    edge = tuple(sorted((x,y)))
+                    edge_to_faces[edge].discard(last if found_fid==last else found_fid)
+                    if found_fid!=last:
+                        # swapped one moved into found_fid
+                        edge_to_faces[edge].add(found_fid)
+
+                # add new faces
+                for tri in new_tris:
+                    idx = len(faces)
+                    faces.append(tri)
+                    for x,y in ((tri[0],tri[1]),(tri[1],tri[2]),(tri[2],tri[0])):
+                        edge_to_faces[tuple(sorted((x,y)))].add(idx)
+
+            # *** EDGE ***
+            elif (alpha < tol) ^ (beta < tol) ^ (gamma < tol):
+                # exactly one small → edge hit
+                # identify which edge
+                f = faces[found_fid]
+                # pick the two indices with non-small barycentric
+                vs = []
+                for w,vi in zip((alpha,beta,gamma), f):
+                    if w > tol:
+                        vs.append(vi)
+                if len(vs)!=2:
+                    vs = [f[0],f[1]]  # fallback
+                e0,e1 = vs
+                edge = tuple(sorted((e0,e1)))
+                adj = list(edge_to_faces[edge])  # faces on that edge
+
+                # for each adjacent face, split into 2
+                for fid in sorted(adj, reverse=True):
+                    f = faces[fid]
+                    # find orientation
+                    # find where the edge sits in the face order
+                    a_idx = f.index(e0)
+                    b_idx = f.index(e1)
+                    # ensure they are consecutive (mod 3)
+                    # otherwise swap e0,e1
+                    if (a_idx+1)%3 != b_idx:
+                        e0,e1 = e1,e0  # swap so that e0→e1 is in the face
+                        a_idx = f.index(e0)
+                        b_idx = f.index(e1)
+                    opp = f[3 - (a_idx + b_idx)]  # the third vertex
+
+                    # build two new tris preserving orientation
+                    t1 = [e0, new_vid, opp]
+                    t2 = [new_vid, e1, opp]
+
+                    # remove old face
+                    last = len(faces)-1
+                    faces[fid] = faces[last]
+                    faces.pop()
+                    # update edge map for removal
+                    for x,y in ((f[0],f[1]),(f[1],f[2]),(f[2],f[0])):
+                        edge_to_faces[tuple(sorted((x,y)))].discard(last if fid==last else fid)
+                        if fid!=last:
+                            edge_to_faces[tuple(sorted((x,y)))].add(fid)
+
+                    # add t1,t2
+                    for tri in (t1,t2):
+                        idx = len(faces)
+                        faces.append(tri)
+                        for x,y in ((tri[0],tri[1]),(tri[1],tri[2]),(tri[2],tri[0])):
+                            edge_to_faces[tuple(sorted((x,y)))].add(idx)
+
+            # *** VERTEX ***
+            else:
+                # pure vertex hit: append vertex only, no face changes
+                # already did vertices.append(pt)
+                pass
+
+    return np.array(vertices), np.array(faces)
+
+def find_face_on_surface(mesh, point):
+    tree = bounds_tree(mesh.triangles)  # :contentReference[oaicite:0]{index=0}
+
+    tol = 1e-6
+    # 3) Make a “degenerate” AABB [min,max] = [point,point]
+    query_box = np.hstack((point, point))
+    # 4) O(log N) lookup of triangle indices whose AABB contains the point
+    candidates = list(tree.intersection(tuple(query_box)))
+    if not candidates:
+        return None
+    # 5) Fetch those triangles and compute barycentric coords in O(1) each
+    tris = mesh.triangles[candidates]       # shape (m,3,3)
+    pts = np.tile(point, (len(tris), 1))    # shape (m,3)
+    bary = points_to_barycentric(tris, pts) # :contentReference[oaicite:1]{index=1}
+    # 6) Check which barycentric coords lie fully inside [0,1]
+    inside = np.all(bary >= -tol, axis=1) & np.all(bary <= 1+tol, axis=1)
+    if np.any(inside):
+        # return the first matching face index
+        return candidates[np.argmax(inside)]
+    return None
+
+def insert_points_into_mesh_new(mesh: trimesh.Trimesh, new_points):
+    """
+    Inserts new points as vertices into an existing mesh by updating the face
+    list. For each new point that lies inside a triangle, the triangle is split
+    into three triangles.
 
     Parameters:
-      pt : (3,) array-like, the point to test.
-      v0, v1, v2 : (N, 3) array-like, vertices of the triangles.
-      tol : float, tolerance for plane check and barycentric boundaries.
+      vertices : numpy.ndarray of shape (N, 3) representing the vertex coordinates.
+      faces    : numpy.ndarray of shape (M, 3) representing each triangular face
+                 as indices into the vertex array.
+      new_points : numpy.ndarray of shape (P, 3) representing new points to insert.
 
     Returns:
-      inside : (N,) boolean numpy array where each entry is True if pt lies in
-               the corresponding triangle (within tolerance), else False.
+      updated_vertices : numpy.ndarray, the new vertex array with inserted points.
+      updated_faces    : numpy.ndarray, the updated face array after splitting.
     """
-    pt = np.asarray(pt).reshape(1, 3)  # shape (1, 3)
-    v0 = np.asarray(v0)  # shape (N, 3)
-    v1 = np.asarray(v1)
-    v2 = np.asarray(v2)
+    # Convert to lists for easier insertion and removal
+    closest, dists, face_id = mesh.nearest.on_surface(new_points)
+    new_points = closest
+    vertices_list = list(mesh.vertices)
+    faces_list = list(mesh.faces)
+    # original_faces_to_updated_faces = dict(zip(faces_list, [[i] for i in faces_list]))
+    for pt in tqdm(new_points):
+        t0 = time.time()
+        new_mesh = trimesh.Trimesh(
+            vertices=vertices_list, faces=faces_list, process=False
+        )
+        t1 = time.time()
+        face_id = find_face_on_surface(new_mesh, pt)
+        t2 = time.time()
+        #face_id = face_id[0]
+        face = new_mesh.faces[face_id]
+        # Point found inside this face. Add the point to the vertex list.
+        new_idx = len(vertices_list)
+        vertices_list.append(pt)
 
-    # Step 1: Compute the normals for each triangle.
-    v0v1 = v1 - v0  # shape (N, 3)
-    v0v2 = v2 - v0  # shape (N, 3)
-    normals = np.cross(v0v1, v0v2)  # shape (N, 3)
-    norm_n = np.linalg.norm(normals, axis=1)  # shape (N,)
+        # Split the face into three new faces that include the new point.
+        new_faces = [
+            [face[0], face[1], new_idx],
+            [face[1], face[2], new_idx],
+            [face[2], face[0], new_idx],
+        ]
+        # print(pt, i)
+        # Remove the original face and add the new faces.
+        faces_list.pop(face_id)
+        faces_list.extend(new_faces)
+        t3 = time.time()
+        print(
+            f"Processing point {pt} took {t3-t0:.4f}s (new mesh: {t1-t0:.4f}s, nearest search: {t2-t1:.4f}s)"
+        )
 
-    # Avoid degenerate triangles.
-    valid = norm_n >= tol
+        # found_face = True
+        # break  # Move on to the next new point
 
-    # Normalize normals where possible.
-    normalized_normals = np.zeros_like(normals)
-    normalized_normals[valid] = normals[valid] / norm_n[valid, None]
+        # if not found_face:
+        #     print(
+        #         "Warning: Point", pt, "was not found in any face. It has been skipped."
+        #     )
 
-    # Step 2: Check if the point lies in the plane of each triangle.
-    # Compute the signed distance from pt to the plane of each triangle.
-    # (pt - v0) will broadcast to shape (N, 3).
-    distances = np.sum((pt - v0) * normalized_normals, axis=1)
-
-    valid &= np.abs(distances) <= tol
-
-    # Step 3: Compute barycentric coordinates to test inside/outside.
-    v0pt = pt - v0  # shape (N, 3)
-    dot00 = np.einsum("ij,ij->i", v0v2, v0v2)
-    dot01 = np.einsum("ij,ij->i", v0v2, v0v1)
-    dot02 = np.einsum("ij,ij->i", v0v2, v0pt)
-    dot11 = np.einsum("ij,ij->i", v0v1, v0v1)
-    dot12 = np.einsum("ij,ij->i", v0v1, v0pt)
-
-    denom = dot00 * dot11 - dot01 * dot01
-    non_degenerate = np.abs(denom) >= tol
-    valid &= non_degenerate  # further mark degenerate triangles as invalid.
-
-    invDenom = np.zeros_like(denom)
-    invDenom[non_degenerate] = 1.0 / denom[non_degenerate]
-
-    u = (dot11 * dot02 - dot01 * dot12) * invDenom
-    v = (dot00 * dot12 - dot01 * dot02) * invDenom
-
-    # Check barycentric conditions (with tolerance).
-    valid &= (u >= -tol) & (v >= -tol) & ((u + v) <= 1 + tol)
-
-    return valid
-
-
-# Example usage:
-pt = [0.5, 0.5, 0.0]
-# Define three triangles: one containing the point and one not.
-v0 = np.array([[0, 0, 0], [0, 0, 0]])
-v1 = np.array([[1, 0, 0], [1, 0, 0]])
-v2 = np.array([[0, 1, 0], [1, 1, 0]])
-
-result = point_in_triangle_on_plane_vectorized(pt, v0, v1, v2, tol=1e-6)
-print(result)  # prints an array of booleans, one for each triangle
+    # Convert lists back to numpy arrays for further processing
+    updated_vertices = np.array(vertices_list)
+    updated_faces = np.array(faces_list)
+    return updated_vertices, updated_faces
 
 
-def project_points_to_plane(points, plane_origin, plane_normal):
-    """
-    Projects a set of 3D points onto a 2D coordinate system defined in the plane.
-
-    Parameters:
-      points (Nx3 np.array): 3D points to project.
-      plane_origin (1x3 np.array): A point on the plane.
-      plane_normal (1x3 np.array): Normal vector of the plane.
-
-    Returns:
-      points_2d (Nx2 np.array): The projected 2D coordinates.
-      plane_x, plane_y (1x3 np.array each): The basis vectors for the plane.
-    """
-    # Choose an arbitrary vector that is not parallel to the normal
-    arbitrary = np.array([1, 0, 0])
-    if np.allclose(np.cross(plane_normal, arbitrary), 0):
-        arbitrary = np.array([0, 1, 0])
-
-    # First basis vector in the plane
-    plane_x = np.cross(plane_normal, arbitrary)
-    plane_x /= np.linalg.norm(plane_x)
-
-    # Second basis vector in the plane (ensures orthogonality)
-    plane_y = np.cross(plane_normal, plane_x)
-    plane_y /= np.linalg.norm(plane_y)
-
-    # Project the points: for each point, the coordinates are (dot(point - origin, plane_x), dot(point - origin, plane_y))
-    relative = points - plane_origin
-    u = np.dot(relative, plane_x)
-    v = np.dot(relative, plane_y)
-    return np.column_stack((u, v)), plane_x, plane_y
-
-
-def retriangulate_planar_points(points_3d):
-    """
-    Retriangulates a set of 3D points (boundary plus interior) that lie on the same plane.
-
-    This version handles duplicate vertices in the input by:
-      1. Removing duplicates (keeping the first occurrence) while recording a mapping
-         from each unique vertex to its duplicates in the original list.
-      2. Performing Delaunay triangulation on the unique set of (projected) points.
-      3. Duplicating each face as needed so that each face appears for each original
-         (duplicated) vertex.
-
-    Parameters:
-      points_3d (Nx3 np.array): 3D points (which may contain duplicates) on a common plane.
-
-    Returns:
-      new_faces (Mx3 np.array): Triangles defined with indices referring to the original points.
-      points_3d (Nx3 np.array): The original input vertices.
-      points_2d (Nx2 np.array): The 2D projection (for the original points).
-    """
-    # Ensure points_3d is a NumPy array.
-    points_3d = np.asarray(points_3d)
-
-    # --- Step 1: Compress the vertices while recording duplicates ---
-    # We'll keep the first occurrence of each unique vertex, comparing rows.
-    unique_map = {}  # Maps a 3D coordinate (as a tuple) to its unique index.
-    unique_indices = []  # List of indices in points_3d that are kept.
-    inverse = []  # For each original index, the unique index it maps to.
-
-    for i, pt in enumerate(points_3d):
-        key = tuple(pt)  # Convert the point to a tuple so it can be a dict key.
-        if key not in unique_map:
-            unique_map[key] = len(unique_indices)
-            unique_indices.append(i)
-        inverse.append(unique_map[key])
-    inverse = np.array(inverse)
-
-    # unique_points: only the first instance of each vertex.
-    unique_points = points_3d[unique_indices]
-
-    # Build a mapping (dup_map) from each unique index to a list of original indices.
-    dup_map = defaultdict(list)
-    for orig_idx, u in enumerate(inverse):
-        dup_map[u].append(orig_idx)
-
-    # --- Step 2: Define the plane and project unique points to 2D ---
-    # Use the first three unique points to define the plane.
-    p0, p1, p2 = unique_points[:3]
-    plane_normal = np.cross(p1 - p0, p2 - p0)
-    plane_normal /= np.linalg.norm(plane_normal)
-
-    # Project the unique points to 2D.
-    points_2d_unique, plane_x, plane_y = project_points_to_plane(
-        unique_points, p0, plane_normal
-    )
-
-    # Perform 2D Delaunay triangulation on the unique projected points.
-    tri = Delaunay(points_2d_unique)
-    simplices = tri.simplices  # Each row is a triangle (indices into unique_points)
-    # --- Step 3: Expand faces to refer to the original (duplicated) vertices ---
-    # For each triangle from the Delaunay triangulation (which uses unique vertex indices),
-    # we generate one (or more) triangles by substituting each vertex with all possible original indices.
-    all_faces = []
-    print(simplices)
-    for tri_unique in simplices:
-        # For each vertex in the triangle, get the list of corresponding original indices.
-        options = [dup_map[u] for u in tri_unique]
-        vertex_ids = list(chain.from_iterable(dup_map[u] for u in tri_unique))
-        if len(vertex_ids) == 3:
-            all_faces.append(vertex_ids)
-            continue
-
-        # vertex_ids.remove(options[0][0])
-        # if len(vertex_ids) > 3:
-        #     all_faces.append((vertex_ids[-1], vertex_ids[0], vertex_ids[1]))
-        # # vertex_ids.remove(options[1][0])
-        # all_faces.append()
-        # keep one so it is connected
-        # vertex_ids.remove(options[2][0])
-        duplicated_vertex_faces = list(zip(vertex_ids, vertex_ids[1:], vertex_ids[2:]))
-        all_faces.extend(duplicated_vertex_faces)
-        # print(options)
-        # # Compute the Cartesian product of the three lists.
-        # for combo in product(*options):
-        #     all_faces.append(combo)
-    new_faces = np.array(all_faces)
-    new_faces = np.sort(new_faces, axis=1)
-    new_faces = np.unique(new_faces, axis=0)  # Remove duplicate faces
-
-    # sort new_faces by column
-    # --- Step 4: Project the original points to 2D ---
-    # This gives a 2D projection for the complete (duplicated) set.
-    points_2d, _, _ = project_points_to_plane(points_3d, p0, plane_normal)
-
-    return new_faces, points_3d, points_2d
-
-
-def point_in_triangle_on_plane(pt, v0, v1, v2, tol=1e-6):
-    """
-    Check if point pt lies in the triangle defined by vertices (v0, v1, v2)
-    with the condition that pt must lie on the plane of the triangle.
-
-    Parameters:
-      pt : (3,) array-like, point to test.
-      v0, v1, v2 : (3,) array-like, vertices of the triangle.
-      tol : float, tolerance for plane check and barycentric boundaries.
-
-    Returns:
-      bool : True if pt lies on the plane and inside the triangle (within tolerance), else False.
-    """
-    pt = np.array(pt)
-    v0 = np.array(v0)
-    v1 = np.array(v1)
-    v2 = np.array(v2)
-
-    # Step 1: Compute the normal of the triangle's plane.
-    v0v1 = v1 - v0
-    v0v2 = v2 - v0
-    normal = np.cross(v0v1, v0v2)
-    norm_n = np.linalg.norm(normal)
-    if norm_n < tol:
-        # The triangle is degenerate (area nearly zero)
-        return False
-    normal /= norm_n
-
-    # Step 2: Check if the point lies in the plane.
-    # Compute the signed distance from the point to the plane.
-    distance = np.dot(pt - v0, normal)
-    if np.abs(distance) > tol:
-        # The point is not on the plane.
-        return False
-
-    # Step 3: Use barycentric coordinates to check if the point is inside the triangle.
-    # Compute dot products for barycentrics.
-    # Note: Use the vectors from the triangle's vertex.
-    v0pt = pt - v0
-    dot00 = np.dot(v0v2, v0v2)
-    dot01 = np.dot(v0v2, v0v1)
-    dot02 = np.dot(v0v2, v0pt)
-    dot11 = np.dot(v0v1, v0v1)
-    dot12 = np.dot(v0v1, v0pt)
-
-    denom = dot00 * dot11 - dot01 * dot01
-    if np.abs(denom) < tol:
-        # Degenerate triangle.
-        return False
-    invDenom = 1.0 / denom
-    u = (dot11 * dot02 - dot01 * dot12) * invDenom
-    v = (dot00 * dot12 - dot01 * dot02) * invDenom
-
-    # Check if point is inside the triangle boundaries (allowing for numerical tolerance).
-    return (u >= -tol) and (v >= -tol) and (u + v <= 1 + tol)
-
-
+import time
 def insert_points_into_mesh_original(mesh: trimesh.Trimesh, new_points):
     """
     Inserts new points as vertices into an existing mesh by updating the face
@@ -297,12 +404,15 @@ def insert_points_into_mesh_original(mesh: trimesh.Trimesh, new_points):
     new_points = closest
     vertices_list = list(mesh.vertices)
     faces_list = list(mesh.faces)
-    original_faces_to_updated_faces = dict(zip(faces_list, [[i] for i in faces_list]))
+    # original_faces_to_updated_faces = dict(zip(faces_list, [[i] for i in faces_list]))
     for pt in tqdm(new_points):
+        t0 = time.time()
         new_mesh = trimesh.Trimesh(
             vertices=vertices_list, faces=faces_list, process=False
         )
+        t1 = time.time()
         _, _, face_id = new_mesh.nearest.on_surface([pt])
+        t2 = time.time()
         face_id = face_id[0]
         face = new_mesh.faces[face_id]
         # Point found inside this face. Add the point to the vertex list.
@@ -319,6 +429,11 @@ def insert_points_into_mesh_original(mesh: trimesh.Trimesh, new_points):
         # Remove the original face and add the new faces.
         faces_list.pop(face_id)
         faces_list.extend(new_faces)
+        t3 = time.time()
+        print(
+            f"Processing point {pt} took {t3-t0:.4f}s (new mesh: {t1-t0:.4f}s, nearest search: {t2-t1:.4f}s)"
+        )
+
         # found_face = True
         # break  # Move on to the next new point
 
@@ -333,111 +448,8 @@ def insert_points_into_mesh_original(mesh: trimesh.Trimesh, new_points):
     return updated_vertices, updated_faces
 
 
-def insert_points_into_mesh(mesh: trimesh.Trimesh, new_points):
-    """
-    Inserts new points as vertices into an existing mesh by updating the face
-    list. For each new point that lies inside a triangle, the triangle is split
-    into three triangles.
-
-    Parameters:
-      vertices : numpy.ndarray of shape (N, 3) representing the vertex coordinates.
-      faces    : numpy.ndarray of shape (M, 3) representing each triangular face
-                 as indices into the vertex array.
-      new_points : numpy.ndarray of shape (P, 3) representing new points to insert.
-
-    Returns:
-      updated_vertices : numpy.ndarray, the new vertex array with inserted points.
-      updated_faces    : numpy.ndarray, the updated face array after splitting.
-    """
-    # Convert to lists for easier insertion and removal
-    closest, dists, nearest_face_ids = mesh.nearest.on_surface(new_points)
-
-    updated_vertices = mesh.vertices
-    updated_faces = mesh.faces
-    # group closests by face id
-    unique_face_ids = np.unique(nearest_face_ids)
-    grouped_points = {fid: closest[nearest_face_ids == fid] for fid in unique_face_ids}
-
-    # get face vertices and vstack with closest
-    original_faces_to_remove = set()
-
-    for face_id, associated_new_vertices in grouped_points.items():
-        face = mesh.faces[face_id]
-        face_vertices = mesh.vertices[face]
-        original_faces_to_remove.add(face_id)
-        # [original_vertices_to_remove.add(vertex_index) for vertex_index in face]
-        combined_vertices = np.vstack((face_vertices, associated_new_vertices))
-        new_faces, new_vertices, _ = retriangulate_planar_points(combined_vertices)
-        new_vertices = new_vertices[3:]  # so dont include face vertices again
-        new_faces -= 3
-        num_vertices = len(updated_vertices)
-        updated_vertices = np.vstack([updated_vertices, new_vertices])
-        new_faces = new_faces + num_vertices
-        fastremap.remap(
-            new_faces,
-            dict(zip([num_vertices - 3, num_vertices - 2, num_vertices - 1], face)),
-            preserve_missing_labels=True,
-            in_place=True,
-        )
-        updated_faces = np.vstack([updated_faces, new_faces])
-
-    # subtract from all new ones
-    # for original_vertex_to_remove in original_vertices_to_remove:
-    #     updated_faces[updated_faces >= original_vertex_to_remove] -= 1
-    updated_faces = np.delete(updated_faces, list(original_faces_to_remove), axis=0)
-    # updated_vertices = np.delete(
-    #     updated_vertices, list(original_vertices_to_remove), axis=0
-    # )
-    # delunay triangulate
-
-    # delete initial face and add these faces
-
-    # loop over faces
-    # delauney for points that arent duplicates
-    # new_points = closest
-    # vertices_list = list(mesh.vertices)
-    # faces_list = list(mesh.faces)
-    # original_faces_to_updated_faces = dict(zip(faces_list, [[i] for i in faces_list]))
-    # for pt in tqdm(new_points):
-
-    #     new_mesh = trimesh.Trimesh(
-    #         vertices=vertices_list, faces=faces_list, process=False
-    #     )
-    #     _, _, face_id = new_mesh.nearest.on_surface([pt])
-    #     face_id = face_id[0]
-    #     face = new_mesh.faces[face_id]
-    #     # Point found inside this face. Add the point to the vertex list.
-    #     new_idx = len(vertices_list)
-    #     vertices_list.append(pt)
-
-    #     # Split the face into three new faces that include the new point.
-    #     new_faces = [
-    #         [face[0], face[1], new_idx],
-    #         [face[1], face[2], new_idx],
-    #         [face[2], face[0], new_idx],
-    #     ]
-    #     # print(pt, i)
-    #     # Remove the original face and add the new faces.
-    #     faces_list.pop(face_id)
-    #     faces_list.extend(new_faces)
-    #     # found_face = True
-    #     # break  # Move on to the next new point
-
-    #     # if not found_face:
-    #     #     print(
-    #     #         "Warning: Point", pt, "was not found in any face. It has been skipped."
-    #     #     )
-
-    # # Convert lists back to numpy arrays for further processing
-    # updated_vertices = np.array(vertices_list)
-    # updated_faces = np.array(faces_list)
-    return updated_vertices[:, ::-1], updated_faces
-
-
-# uv, uf = insert_points_into_mesh(cell_mesh, cell_plasmodesmata_coords)
-# trimesh.Trimesh(uv, uf, process=False).export("new_attempt.ply")
 # %%
-
+import pandas as pd
 # Example usage:
 if __name__ == "__main__":
     dataset = "jrc_22ak351-leaf-3m"
@@ -508,91 +520,44 @@ if __name__ == "__main__":
     # Define new points to insert (make sure they lie in the triangle)
     new_points = np.array([[0.3, 0.3, 0.0], [0.2, 0.5, 0.0]])
 
-    updated_vertices, updated_faces = insert_points_into_mesh_original(
+    # updated_vertices, updated_faces = insert_points_into_mesh_original(
+    #     cell_mesh, cell_plasmodesmata_coords
+    # )
+    updated_vertices_new, updated_faces_new = insert_points_allow_duplicates(
         cell_mesh, cell_plasmodesmata_coords
     )
 
+    # new_mesh = trimesh.Trimesh(
+    #     vertices=updated_vertices, faces=updated_faces, process=False
+    # )
+    # new_mesh.export("new_inserted.ply")
     print("Updated vertices:")
     print(updated_vertices)
     print("\nUpdated faces:")
     print(updated_faces)
-    # %%
-    # import numpy as np
 
-    # def point_in_triangle_on_plane(pt, v0, v1, v2, tol=1e-6):
-    #     """
-    #     Check if point pt lies in the triangle defined by vertices (v0, v1, v2)
-    #     with the condition that pt must lie on the plane of the triangle.
-
-    #     Parameters:
-    #       pt : (3,) array-like, point to test.
-    #       v0, v1, v2 : (3,) array-like, vertices of the triangle.
-    #       tol : float, tolerance for plane check and barycentric boundaries.
-
-    #     Returns:
-    #       bool : True if pt lies on the plane and inside the triangle (within tolerance), else False.
-    #     """
-    #     pt = np.array(pt)
-    #     v0 = np.array(v0)
-    #     v1 = np.array(v1)
-    #     v2 = np.array(v2)
-
-    #     # Step 1: Compute the normal of the triangle's plane.
-    #     v0v1 = v1 - v0
-    #     v0v2 = v2 - v0
-    #     normal = np.cross(v0v1, v0v2)
-    #     norm_n = np.linalg.norm(normal)
-    #     if norm_n < tol:
-    #         # The triangle is degenerate (area nearly zero)
-    #         return False
-    #     normal /= norm_n
-
-    #     # Step 2: Check if the point lies in the plane.
-    #     # Compute the signed distance from the point to the plane.
-    #     distance = np.dot(pt - v0, normal)
-    #     if np.abs(distance) > tol:
-    #         # The point is not on the plane.
-    #         return False
-
-    #     # Step 3: Use barycentric coordinates to check if the point is inside the triangle.
-    #     # Compute dot products for barycentrics.
-    #     # Note: Use the vectors from the triangle's vertex.
-    #     v0pt = pt - v0
-    #     dot00 = np.dot(v0v2, v0v2)
-    #     dot01 = np.dot(v0v2, v0v1)
-    #     dot02 = np.dot(v0v2, v0pt)
-    #     dot11 = np.dot(v0v1, v0v1)
-    #     dot12 = np.dot(v0v1, v0pt)
-
-    #     denom = dot00 * dot11 - dot01 * dot01
-    #     if np.abs(denom) < tol:
-    #         # Degenerate triangle.
-    #         return False
-    #     invDenom = 1.0 / denom
-    #     u = (dot11 * dot02 - dot01 * dot12) * invDenom
-    #     v = (dot00 * dot12 - dot01 * dot02) * invDenom
-
-    #     # Check if point is inside the triangle boundaries (allowing for numerical tolerance).
-    #     return (u >= -tol) and (v >= -tol) and (u + v <= 1 + tol)
-
-    # point_in_triangle_on_plane(closest[0], *cell_mesh.vertices[cell_mesh.faces[831]])
     # %%
     import pygeodesic.geodesic as geodesic
     import matplotlib.pyplot as plt
-
+    id = 1000
     geoalg = geodesic.PyGeodesicAlgorithmExact(updated_vertices, updated_faces)
 
-    distance, _ = geoalg.geodesicDistances([0], list(range(len(updated_vertices))))
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection="3d")
-    scatter = ax.scatter(
-        updated_vertices[:, 0],
-        updated_vertices[:, 1],
-        updated_vertices[:, 2],
-        c=distance,
-        cmap="viridis",
-    )
-    cbar = plt.colorbar(scatter)
+    distance, _ = geoalg.geodesicDistances([id], list(range(len(updated_vertices))))
+    
+    geoalg = geodesic.PyGeodesicAlgorithmExact(updated_vertices_new, updated_faces_new)
+    distance_new, _ = geoalg.geodesicDistances([id], list(range(len(updated_vertices_new))))
+    for n,d,v in zip(["original","new"],[distance, distance_new],[updated_vertices,updated_vertices_new]):
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection="3d")
+        scatter = ax.scatter(
+            v[:, 0],
+            v[:, 1],
+            v[:, 2],
+            c=d,
+            cmap="viridis",
+        )
+        ax.set_title(n)
+        cbar = plt.colorbar(scatter)
     # %%
     import pygeodesic.geodesic as geodesic
     import matplotlib.pyplot as plt
@@ -685,7 +650,7 @@ if __name__ == "__main__":
     uvo, ufo = insert_points_into_mesh_original(
         trimesh.Trimesh(points, [[0, 1, 2]], process=False), new_points
     )
-    uv, uf = insert_points_into_mesh(
+    uv, uf = insert_points_allow_duplicates(
         trimesh.Trimesh(points, [[0, 1, 2]], process=False), new_points
     )
     # uv_new, uf_new = insert_points_into_mesh(
@@ -703,4 +668,42 @@ if __name__ == "__main__":
     # %%
 
 
+# %%
+import trimesh
+from trimesh.triangles import bounds_tree, points_to_barycentric
+from trimesh.bounds import contains
+# 2) get the R-tree on triangle AABBs
+
+# 2) Build the R-tree on the (n,3,3) triangle array
+#    This is O(N log N) and returns an rtree.Rtree index
+
+def find_face_on_surface(mesh, point):
+    tree = bounds_tree(mesh.triangles)  # :contentReference[oaicite:0]{index=0}
+
+    tol = 1e-8
+    # 3) Make a “degenerate” AABB [min,max] = [point,point]
+    query_box = np.hstack((point, point))
+    # 4) O(log N) lookup of triangle indices whose AABB contains the point
+    candidates = list(tree.intersection(tuple(query_box)))
+    if not candidates:
+        return None
+    # 5) Fetch those triangles and compute barycentric coords in O(1) each
+    tris = mesh.triangles[candidates]       # shape (m,3,3)
+    pts = np.tile(point, (len(tris), 1))    # shape (m,3)
+    bary = points_to_barycentric(tris, pts) # :contentReference[oaicite:1]{index=1}
+    # 6) Check which barycentric coords lie fully inside [0,1]
+    inside = np.all(bary >= -tol, axis=1) & np.all(bary <= 1+tol, axis=1)
+    if np.any(inside):
+        # return the first matching face index
+        return candidates[np.argmax(inside)]
+    return None
+
+# %%
+%timeit find_face_on_surface(mesh,mesh.vertices[-1])
+
+# %%
+mesh = cell_mesh
+closest_pts, dists, orig_faces = mesh.nearest.on_surface(cell_plasmodesmata_coords)
+
+len(closest_pts), len(np.unique(closest_pts,axis=0))
 # %%

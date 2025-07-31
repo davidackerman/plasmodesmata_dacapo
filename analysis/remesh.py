@@ -36,6 +36,7 @@ import numpy as np
 from collections import defaultdict
 from tqdm import tqdm
 
+
 def point_in_triangle(pt: np.ndarray, tri: np.ndarray, tol: float = 1e-8):
     """
     Compute barycentric coords of pt w.r.t. tri = [v0,v1,v2].
@@ -55,8 +56,8 @@ def point_in_triangle(pt: np.ndarray, tri: np.ndarray, tol: float = 1e-8):
 
     D = uv * uv - uu * vv
     # barycentric (beta, gamma) relative to v1,v2; alpha = 1 - beta - gamma
-    beta  = ( uv * wv - vv * wu) / D
-    gamma = ( uv * wu - uu * wv) / D
+    beta = (uv * wv - vv * wu) / D
+    gamma = (uv * wu - uu * wv) / D
     alpha = 1 - beta - gamma
 
     inside = (alpha >= -tol) and (beta >= -tol) and (gamma >= -tol)
@@ -67,10 +68,11 @@ def build_edge_map(faces):
     """Map undirected edge (i,j) with i<j → set of face-indices containing it."""
     edge_to_faces = defaultdict(set)
     for fid, f in enumerate(faces):
-        for a, b in ((0,1),(1,2),(2,0)):
+        for a, b in ((0, 1), (1, 2), (2, 0)):
             i, j = sorted((f[a], f[b]))
-            edge_to_faces[(i,j)].add(fid)
+            edge_to_faces[(i, j)].add(fid)
     return edge_to_faces
+
 
 def insert_points_allow_duplicates(mesh, new_points, tol: float = 1e-8):
     """
@@ -83,18 +85,18 @@ def insert_points_allow_duplicates(mesh, new_points, tol: float = 1e-8):
 
     # 2) Work with Python lists so we can append/pop efficiently
     vertices = mesh.vertices.tolist()
-    faces    = mesh.faces.tolist()
+    faces = mesh.faces.tolist()
 
     # 3) Build mappings: original_face → set(current_face_indices), and face_idx → original_face
     n0 = len(faces)
     orig_to_current = {i: {i} for i in range(n0)}
-    face_to_orig    = {i: i for i in range(n0)}
+    face_to_orig = {i: i for i in range(n0)}
 
     # 4) Batch points by their original face for a tiny speedup
     pts_by_face = defaultdict(list)
     for pt, f in zip(closest_pts, orig_faces):
         pts_by_face[f].append(pt)
-    
+
     # 5) Process each group
     for f_orig, pts in tqdm(pts_by_face.items(), desc="Inserting points"):
         for pt in pts:
@@ -144,7 +146,7 @@ def insert_points_allow_duplicates(mesh, new_points, tol: float = 1e-8):
             faces.extend(new_faces)
             for i in range(3):
                 fi = base + i
-                face_to_orig[fi]       = f_orig
+                face_to_orig[fi] = f_orig
                 orig_to_current[f_orig].add(fi)
 
             # 5i) Remove the old face index from its original mapping
@@ -152,6 +154,7 @@ def insert_points_allow_duplicates(mesh, new_points, tol: float = 1e-8):
 
     # 6) Return as numpy arrays
     return np.array(vertices), np.array(faces)
+
 
 def insert_points_into_mesh_new_most_advanced(mesh, new_points, tol: float = 1e-8):
     """
@@ -164,7 +167,7 @@ def insert_points_into_mesh_new_most_advanced(mesh, new_points, tol: float = 1e-
 
     # 2) mutable lists
     vertices = mesh.vertices.tolist()
-    faces    = mesh.faces.tolist()
+    faces = mesh.faces.tolist()
 
     # 3) build edge→faces mapping
     edge_to_faces = build_edge_map(faces)
@@ -214,18 +217,20 @@ def insert_points_into_mesh_new_most_advanced(mesh, new_points, tol: float = 1e-
             if (alpha > tol) and (beta > tol) and (gamma > tol):
                 # split into 3
                 a, b, c = faces[found_fid]
-                new_tris = [[a,b,new_vid],[b,c,new_vid],[c,a,new_vid]]
+                new_tris = [[a, b, new_vid], [b, c, new_vid], [c, a, new_vid]]
 
                 # remove old face
-                last = len(faces)-1
+                last = len(faces) - 1
                 faces[found_fid] = faces[last]
                 faces.pop()
 
                 # update edge map for removed face
-                for x,y in ((a,b),(b,c),(c,a)):
-                    edge = tuple(sorted((x,y)))
-                    edge_to_faces[edge].discard(last if found_fid==last else found_fid)
-                    if found_fid!=last:
+                for x, y in ((a, b), (b, c), (c, a)):
+                    edge = tuple(sorted((x, y)))
+                    edge_to_faces[edge].discard(
+                        last if found_fid == last else found_fid
+                    )
+                    if found_fid != last:
                         # swapped one moved into found_fid
                         edge_to_faces[edge].add(found_fid)
 
@@ -233,8 +238,8 @@ def insert_points_into_mesh_new_most_advanced(mesh, new_points, tol: float = 1e-
                 for tri in new_tris:
                     idx = len(faces)
                     faces.append(tri)
-                    for x,y in ((tri[0],tri[1]),(tri[1],tri[2]),(tri[2],tri[0])):
-                        edge_to_faces[tuple(sorted((x,y)))].add(idx)
+                    for x, y in ((tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])):
+                        edge_to_faces[tuple(sorted((x, y)))].add(idx)
 
             # *** EDGE ***
             elif (alpha < tol) ^ (beta < tol) ^ (gamma < tol):
@@ -243,13 +248,13 @@ def insert_points_into_mesh_new_most_advanced(mesh, new_points, tol: float = 1e-
                 f = faces[found_fid]
                 # pick the two indices with non-small barycentric
                 vs = []
-                for w,vi in zip((alpha,beta,gamma), f):
+                for w, vi in zip((alpha, beta, gamma), f):
                     if w > tol:
                         vs.append(vi)
-                if len(vs)!=2:
-                    vs = [f[0],f[1]]  # fallback
-                e0,e1 = vs
-                edge = tuple(sorted((e0,e1)))
+                if len(vs) != 2:
+                    vs = [f[0], f[1]]  # fallback
+                e0, e1 = vs
+                edge = tuple(sorted((e0, e1)))
                 adj = list(edge_to_faces[edge])  # faces on that edge
 
                 # for each adjacent face, split into 2
@@ -261,8 +266,8 @@ def insert_points_into_mesh_new_most_advanced(mesh, new_points, tol: float = 1e-
                     b_idx = f.index(e1)
                     # ensure they are consecutive (mod 3)
                     # otherwise swap e0,e1
-                    if (a_idx+1)%3 != b_idx:
-                        e0,e1 = e1,e0  # swap so that e0→e1 is in the face
+                    if (a_idx + 1) % 3 != b_idx:
+                        e0, e1 = e1, e0  # swap so that e0→e1 is in the face
                         a_idx = f.index(e0)
                         b_idx = f.index(e1)
                     opp = f[3 - (a_idx + b_idx)]  # the third vertex
@@ -272,21 +277,27 @@ def insert_points_into_mesh_new_most_advanced(mesh, new_points, tol: float = 1e-
                     t2 = [new_vid, e1, opp]
 
                     # remove old face
-                    last = len(faces)-1
+                    last = len(faces) - 1
                     faces[fid] = faces[last]
                     faces.pop()
                     # update edge map for removal
-                    for x,y in ((f[0],f[1]),(f[1],f[2]),(f[2],f[0])):
-                        edge_to_faces[tuple(sorted((x,y)))].discard(last if fid==last else fid)
-                        if fid!=last:
-                            edge_to_faces[tuple(sorted((x,y)))].add(fid)
+                    for x, y in ((f[0], f[1]), (f[1], f[2]), (f[2], f[0])):
+                        edge_to_faces[tuple(sorted((x, y)))].discard(
+                            last if fid == last else fid
+                        )
+                        if fid != last:
+                            edge_to_faces[tuple(sorted((x, y)))].add(fid)
 
                     # add t1,t2
-                    for tri in (t1,t2):
+                    for tri in (t1, t2):
                         idx = len(faces)
                         faces.append(tri)
-                        for x,y in ((tri[0],tri[1]),(tri[1],tri[2]),(tri[2],tri[0])):
-                            edge_to_faces[tuple(sorted((x,y)))].add(idx)
+                        for x, y in (
+                            (tri[0], tri[1]),
+                            (tri[1], tri[2]),
+                            (tri[2], tri[0]),
+                        ):
+                            edge_to_faces[tuple(sorted((x, y)))].add(idx)
 
             # *** VERTEX ***
             else:
@@ -295,6 +306,7 @@ def insert_points_into_mesh_new_most_advanced(mesh, new_points, tol: float = 1e-
                 pass
 
     return np.array(vertices), np.array(faces)
+
 
 def find_face_on_surface(mesh, point):
     tree = bounds_tree(mesh.triangles)  # :contentReference[oaicite:0]{index=0}
@@ -307,15 +319,16 @@ def find_face_on_surface(mesh, point):
     if not candidates:
         return None
     # 5) Fetch those triangles and compute barycentric coords in O(1) each
-    tris = mesh.triangles[candidates]       # shape (m,3,3)
-    pts = np.tile(point, (len(tris), 1))    # shape (m,3)
-    bary = points_to_barycentric(tris, pts) # :contentReference[oaicite:1]{index=1}
+    tris = mesh.triangles[candidates]  # shape (m,3,3)
+    pts = np.tile(point, (len(tris), 1))  # shape (m,3)
+    bary = points_to_barycentric(tris, pts)  # :contentReference[oaicite:1]{index=1}
     # 6) Check which barycentric coords lie fully inside [0,1]
-    inside = np.all(bary >= -tol, axis=1) & np.all(bary <= 1+tol, axis=1)
+    inside = np.all(bary >= -tol, axis=1) & np.all(bary <= 1 + tol, axis=1)
     if np.any(inside):
         # return the first matching face index
         return candidates[np.argmax(inside)]
     return None
+
 
 def insert_points_into_mesh_new(mesh: trimesh.Trimesh, new_points):
     """
@@ -347,7 +360,7 @@ def insert_points_into_mesh_new(mesh: trimesh.Trimesh, new_points):
         t1 = time.time()
         face_id = find_face_on_surface(new_mesh, pt)
         t2 = time.time()
-        #face_id = face_id[0]
+        # face_id = face_id[0]
         face = new_mesh.faces[face_id]
         # Point found inside this face. Add the point to the vertex list.
         new_idx = len(vertices_list)
@@ -383,6 +396,8 @@ def insert_points_into_mesh_new(mesh: trimesh.Trimesh, new_points):
 
 
 import time
+
+
 def insert_points_into_mesh_original(mesh: trimesh.Trimesh, new_points):
     """
     Inserts new points as vertices into an existing mesh by updating the face
@@ -448,8 +463,22 @@ def insert_points_into_mesh_original(mesh: trimesh.Trimesh, new_points):
     return updated_vertices, updated_faces
 
 
+def compute_density(dist_matrix: np.ndarray, radius: float) -> np.ndarray:
+    """
+    For each row i in dist_matrix, counts how many entries
+    (other than itself) are ≤ radius.
+
+    Returns an array of shape (n,) where n = dist_matrix.shape[0].
+    """
+    # boolean mask where True if distance ≤ radius
+    within = dist_matrix <= radius
+    # sum along each row, subtract 1 to exclude self-distance==0
+    return within.sum(axis=1) - 1
+
+
 # %%
 import pandas as pd
+
 # Example usage:
 if __name__ == "__main__":
     dataset = "jrc_22ak351-leaf-3m"
@@ -497,7 +526,7 @@ if __name__ == "__main__":
     )
 
     # get all cells matching id
-    cell_id = 364 #390
+    cell_id = 364  # 390
     cell_plasmodesmata_coords = merged_df[merged_df["Cell ID"] == cell_id][
         [
             "Plasmodesmata COM Z (nm)",
@@ -539,21 +568,27 @@ if __name__ == "__main__":
     # %%
     import pygeodesic.geodesic as geodesic
     import matplotlib.pyplot as plt
+
     # get indices of cell_plasmodesmata_coords in updated_vertices
 
-    #closest, dists, face_id = cell_mesh.nearest.on_surface(cell_plasmodesmata_coords)
+    # closest, dists, face_id = cell_mesh.nearest.on_surface(cell_plasmodesmata_coords)
 
-    indices = list(range(len(cell_mesh.vertices), len(cell_mesh.vertices) + len(cell_plasmodesmata_coords)))
+    indices = list(
+        range(
+            len(cell_mesh.vertices),
+            len(cell_mesh.vertices) + len(cell_plasmodesmata_coords),
+        )
+    )
     geoalg = geodesic.PyGeodesicAlgorithmExact(updated_vertices, updated_faces)
 
-    #distance, _ = geoalg.geodesicDistances([id], list(range(len(updated_vertices))))
-    
-    #geoalg = geodesic.PyGeodesicAlgorithmExact(updated_vertices_new, updated_faces_new)
+    # distance, _ = geoalg.geodesicDistances([id], list(range(len(updated_vertices))))
 
-    #distance, _ = geoalg.geodesicDistances([indices[1000]], indices)
+    # geoalg = geodesic.PyGeodesicAlgorithmExact(updated_vertices_new, updated_faces_new)
+
+    # distance, _ = geoalg.geodesicDistances([indices[1000]], indices)
     # pt_on_mesh = updated_vertices[indices]
 
-    #for n,d,v in zip(["original","new"],[distance, distance_new],[updated_vertices,updated_vertices_new]):
+    # for n,d,v in zip(["original","new"],[distance, distance_new],[updated_vertices,updated_vertices_new]):
     # choose your renderer: "vscode" (Interactive pane) or "browser"
     # %%
     from tqdm import tqdm
@@ -574,16 +609,21 @@ if __name__ == "__main__":
 
     # this could be faster:
     import gdist
-    d=gdist.distance_matrix_of_selected_points(updated_vertices.astype(np.float64), updated_faces.astype(np.int32), np.array(indices,dtype=np.int32)).toarray()
-    new_dist_matrix = d[-len(indices):, -len(indices):]
+
+    d = gdist.distance_matrix_of_selected_points(
+        updated_vertices.astype(np.float64),
+        updated_faces.astype(np.int32),
+        np.array(indices, dtype=np.int32),
+    ).toarray()
+    new_dist_matrix = d[-len(indices) :, -len(indices) :]
     # %% plot
     import numpy as np
 
     def compute_density(dist_matrix: np.ndarray, radius: float) -> np.ndarray:
         """
-        For each row i in dist_matrix, counts how many entries 
+        For each row i in dist_matrix, counts how many entries
         (other than itself) are ≤ radius.
-        
+
         Returns an array of shape (n,) where n = dist_matrix.shape[0].
         """
         # boolean mask where True if distance ≤ radius
@@ -592,11 +632,12 @@ if __name__ == "__main__":
         return within.sum(axis=1) - 1
 
     # example usage:
-    x = 1000.0   # your chosen geodesic distance threshold
+    x = 1000.0  # your chosen geodesic distance threshold
     densities = compute_density(new_dist_matrix, x)
 
     import plotly.graph_objects as go
     import plotly.io as pio
+
     pio.renderers.default = "vscode"
 
     # ---- your data here ----
@@ -615,18 +656,18 @@ if __name__ == "__main__":
 
     # Scatter trace (colored by distance)
     scatter_trace = go.Scatter3d(
-        x=updated_vertices[len(verts):, 0],
-        y=updated_vertices[len(verts):, 1],
-        z=updated_vertices[len(verts):, 2],
-        mode='markers',
+        x=updated_vertices[len(verts) :, 0],
+        y=updated_vertices[len(verts) :, 1],
+        z=updated_vertices[len(verts) :, 2],
+        mode="markers",
         marker=dict(
             size=4,
             color=densities[:],
-            colorscale='Viridis',
-            colorbar=dict(title='Distance'),
-            opacity=0.8
+            colorscale="Viridis",
+            colorbar=dict(title="Distance"),
+            opacity=0.8,
         ),
-        name='samples'
+        name="samples",
     )
 
     # Mesh trace (semi-transparent)
@@ -634,22 +675,18 @@ if __name__ == "__main__":
         x=verts_shrunk[:, 0],
         y=verts_shrunk[:, 1],
         z=verts_shrunk[:, 2],
-        i=faces[:, 0],   # first vertex index of each triangle
-        j=faces[:, 1],   # second
-        k=faces[:, 2],   # third
-        color='gray',
+        i=faces[:, 0],  # first vertex index of each triangle
+        j=faces[:, 1],  # second
+        k=faces[:, 2],  # third
+        color="gray",
         opacity=1.0,
-        name='cell mesh'
+        name="cell mesh",
     )
 
     fig = go.Figure(data=[mesh_trace, scatter_trace])
     fig.update_layout(
         title="Cell Mesh with Distance-colored Samples",
-        scene=dict(
-            xaxis_title="X",
-            yaxis_title="Y",
-            zaxis_title="Z"
-        ),
+        scene=dict(xaxis_title="X", yaxis_title="Y", zaxis_title="Z"),
         autosize=True,
     )
 
@@ -754,75 +791,76 @@ if __name__ == "__main__":
     #     trimesh.Trimesh(points, [[0, 1, 2]], process=False),
     # )
 
-    print(uv, uf)
-    print(uvo, ufo)
+    print(len(uv), len(uf))
+    print(len(uvo), len(ufo))
     # print(uv_new, uf_new)
     # %%
     import pygeodesic.geodesic as geodesic
 
     geoalg = geodesic.PyGeodesicAlgorithmExact(uv, uf)
-    geoalg.geodesicDistances([0], [1])
+    geoalg.geodesicDistances([4], [5])
     # %%
 
+# # %%
+# import trimesh
+# from trimesh.triangles import bounds_tree, points_to_barycentric
+# from trimesh.bounds import contains
+# # 2) get the R-tree on triangle AABBs
 
-# %%
-import trimesh
-from trimesh.triangles import bounds_tree, points_to_barycentric
-from trimesh.bounds import contains
-# 2) get the R-tree on triangle AABBs
+# # 2) Build the R-tree on the (n,3,3) triangle array
+# #    This is O(N log N) and returns an rtree.Rtree index
 
-# 2) Build the R-tree on the (n,3,3) triangle array
-#    This is O(N log N) and returns an rtree.Rtree index
+# def find_face_on_surface(mesh, point):
+#     tree = bounds_tree(mesh.triangles)  # :contentReference[oaicite:0]{index=0}
 
-def find_face_on_surface(mesh, point):
-    tree = bounds_tree(mesh.triangles)  # :contentReference[oaicite:0]{index=0}
+#     tol = 1e-8
+#     # 3) Make a “degenerate” AABB [min,max] = [point,point]
+#     query_box = np.hstack((point, point))
+#     # 4) O(log N) lookup of triangle indices whose AABB contains the point
+#     candidates = list(tree.intersection(tuple(query_box)))
+#     if not candidates:
+#         return None
+#     # 5) Fetch those triangles and compute barycentric coords in O(1) each
+#     tris = mesh.triangles[candidates]       # shape (m,3,3)
+#     pts = np.tile(point, (len(tris), 1))    # shape (m,3)
+#     bary = points_to_barycentric(tris, pts) # :contentReference[oaicite:1]{index=1}
+#     # 6) Check which barycentric coords lie fully inside [0,1]
+#     inside = np.all(bary >= -tol, axis=1) & np.all(bary <= 1+tol, axis=1)
+#     if np.any(inside):
+#         # return the first matching face index
+#         return candidates[np.argmax(inside)]
+#     return None
 
-    tol = 1e-8
-    # 3) Make a “degenerate” AABB [min,max] = [point,point]
-    query_box = np.hstack((point, point))
-    # 4) O(log N) lookup of triangle indices whose AABB contains the point
-    candidates = list(tree.intersection(tuple(query_box)))
-    if not candidates:
-        return None
-    # 5) Fetch those triangles and compute barycentric coords in O(1) each
-    tris = mesh.triangles[candidates]       # shape (m,3,3)
-    pts = np.tile(point, (len(tris), 1))    # shape (m,3)
-    bary = points_to_barycentric(tris, pts) # :contentReference[oaicite:1]{index=1}
-    # 6) Check which barycentric coords lie fully inside [0,1]
-    inside = np.all(bary >= -tol, axis=1) & np.all(bary <= 1+tol, axis=1)
-    if np.any(inside):
-        # return the first matching face index
-        return candidates[np.argmax(inside)]
-    return None
+# # %%
+# %timeit find_face_on_surface(mesh,mesh.vertices[-1])
 
-# %%
-%timeit find_face_on_surface(mesh,mesh.vertices[-1])
+# # %%
+# mesh = cell_mesh
+# closest_pts, dists, orig_faces = mesh.nearest.on_surface(cell_plasmodesmata_coords)
 
-# %%
-mesh = cell_mesh
-closest_pts, dists, orig_faces = mesh.nearest.on_surface(cell_plasmodesmata_coords)
+# len(closest_pts), len(np.unique(closest_pts,axis=0))
+# # %%
 
-len(closest_pts), len(np.unique(closest_pts,axis=0))
-# %%
+# # %%
+# import plotly.graph_objects as go
+# import numpy as np
 
-# %%
-import plotly.graph_objects as go
-import numpy as np
+# # Sample data
+# np.random.seed(42)
+# x = np.random.rand(100)
+# y = np.random.rand(100)
+# z = np.random.rand(100)
 
-# Sample data
-np.random.seed(42)
-x = np.random.rand(100)
-y = np.random.rand(100)
-z = np.random.rand(100)
+# fig = go.Figure(data=[go.Scatter3d(
+#     x=x, y=y, z=z,
+#     mode='markers',
+#     marker=dict(
+#         size=5,
+#         opacity=0.8
+#     ),
+# )])
 
-fig = go.Figure(data=[go.Scatter3d(
-    x=x, y=y, z=z,
-    mode='markers',
-    marker=dict(
-        size=5,
-        opacity=0.8
-    ),
-)])
+# fig.show()
+# # %%
 
-fig.show()
 # %%

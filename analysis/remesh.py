@@ -430,9 +430,9 @@ def insert_points_into_mesh_original(mesh: trimesh.Trimesh, new_points):
         faces_list.pop(face_id)
         faces_list.extend(new_faces)
         t3 = time.time()
-        print(
-            f"Processing point {pt} took {t3-t0:.4f}s (new mesh: {t1-t0:.4f}s, nearest search: {t2-t1:.4f}s)"
-        )
+        # print(
+        #     f"Processing point {pt} took {t3-t0:.4f}s (new mesh: {t1-t0:.4f}s, nearest search: {t2-t1:.4f}s)"
+        # )
 
         # found_face = True
         # break  # Move on to the next new point
@@ -497,7 +497,7 @@ if __name__ == "__main__":
     )
 
     # get all cells matching id
-    cell_id = 490 #390
+    cell_id = 364 #390
     cell_plasmodesmata_coords = merged_df[merged_df["Cell ID"] == cell_id][
         [
             "Plasmodesmata COM Z (nm)",
@@ -514,8 +514,8 @@ if __name__ == "__main__":
     num_plasmodesmata = len(cell_plasmodesmata_coords)
 
     # Define a simple mesh: a single triangle
-    vertices = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
-    faces = np.array([[0, 1, 2]])
+    # vertices = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+    # faces = np.array([[0, 1, 2]])
 
     # Define new points to insert (make sure they lie in the triangle)
     new_points = np.array([[0.3, 0.3, 0.0], [0.2, 0.5, 0.0]])
@@ -550,11 +550,51 @@ if __name__ == "__main__":
     
     #geoalg = geodesic.PyGeodesicAlgorithmExact(updated_vertices_new, updated_faces_new)
 
-    distance, _ = geoalg.geodesicDistances([indices[1000]], indices)
-    pt_on_mesh = updated_vertices[indices]
+    #distance, _ = geoalg.geodesicDistances([indices[1000]], indices)
+    # pt_on_mesh = updated_vertices[indices]
+
     #for n,d,v in zip(["original","new"],[distance, distance_new],[updated_vertices,updated_vertices_new]):
     # choose your renderer: "vscode" (Interactive pane) or "browser"
+    # %%
+    from tqdm import tqdm
+    import numpy as np
+
+    # n = len(indices)
+    # dist_matrix = np.zeros((n, n), dtype=float)
+
+    # for i in tqdm(range(n), desc="Geodesic distances"):
+    #     src = indices[i]
+    #     # only compute distances to j >= i
+    #     target_subset = indices[i:]
+    #     dists, _ = geoalg.geodesicDistances([src], target_subset)
+    #     # fill upper triangle
+    #     dist_matrix[i, i:] = dists
+    #     # mirror to lower triangle
+    #     dist_matrix[i:, i] = dists
+
+    # this could be faster:
+    import gdist
+    d=gdist.distance_matrix_of_selected_points(updated_vertices.astype(np.float64), updated_faces.astype(np.int32), np.array(indices,dtype=np.int32)).toarray()
+    new_dist_matrix = d[-len(indices):, -len(indices):]
     # %% plot
+    import numpy as np
+
+    def compute_density(dist_matrix: np.ndarray, radius: float) -> np.ndarray:
+        """
+        For each row i in dist_matrix, counts how many entries 
+        (other than itself) are ≤ radius.
+        
+        Returns an array of shape (n,) where n = dist_matrix.shape[0].
+        """
+        # boolean mask where True if distance ≤ radius
+        within = dist_matrix <= radius
+        # sum along each row, subtract 1 to exclude self-distance==0
+        return within.sum(axis=1) - 1
+
+    # example usage:
+    x = 1000.0   # your chosen geodesic distance threshold
+    densities = compute_density(new_dist_matrix, x)
+
     import plotly.graph_objects as go
     import plotly.io as pio
     pio.renderers.default = "vscode"
@@ -581,7 +621,7 @@ if __name__ == "__main__":
         mode='markers',
         marker=dict(
             size=4,
-            color=distance[:],
+            color=densities[:],
             colorscale='Viridis',
             colorbar=dict(title='Distance'),
             opacity=0.8

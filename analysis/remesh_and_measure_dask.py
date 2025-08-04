@@ -1,7 +1,7 @@
+# %%
 import os
 from cellmap_analyze.util import dask_util, io_util
 import logging
-import os
 from dataclasses import dataclass
 import trimesh
 import pandas as pd
@@ -10,6 +10,7 @@ from remesh import insert_points_into_mesh_original
 import gdist
 import pygeodesic.geodesic as geodesic
 import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -99,9 +100,12 @@ def measure_distribution_for_cell(
     np.save(output_file, dist_matrix)
 
 
+# %%
+
 if __name__ == "__main__":
+    # %%
     # Initialize run properties
-    run_properties = RunProperties()
+    # run_properties = RunProperties()
 
     dataset = "jrc_22ak351-leaf-3m"
     plasmodesmata_file = f"/nrs/cellmap/ackermand/cellmap/analysisResults/leaf-gall/{dataset}/plasmodesmata_cleaned_lines_assigned_to_2_nearest_cells.csv"
@@ -134,59 +138,78 @@ if __name__ == "__main__":
         f"/nrs/cellmap/ackermand/cellmap/analysisResults/leaf-gall/{dataset}/cell.csv"
     )
     cell_df = pd.read_csv(cell_file)
-    # Compute plasmodesmata counts per cell
     cell_df = cell_df.rename(
         columns={
+            "Object ID": "Cell ID",
             "COM X (nm)": "Cell COM X (nm)",
             "COM Y (nm)": "Cell COM Y (nm)",
             "COM Z (nm)": "Cell COM Z (nm)",
         }
     )
-    # Merge the plasmodesmata counts with cell_df (using "Object ID" in cell_df)
     merged_df = cell_df.merge(
-        exploded_df, left_on="Object ID", right_on="Cell ID", how="left"
+        exploded_df, left_on="Cell ID", right_on="Cell ID", how="left"
     )
 
-    # get all cells matching id
-    cell_id = 364  # 390
-    cell_plasmodesmata_coords = merged_df[merged_df["Cell ID"] == cell_id][
-        [
-            "Plasmodesmata COM Z (nm)",
-            "Plasmodesmata COM Y (nm)",
-            "Plasmodesmata COM X (nm)",
-        ]
-    ].to_numpy()
-
-    # read in mesh
-    cell_mesh_file = f"/nrs/cellmap/ackermand/new_meshes/meshes/single_resolution/leaf-gall/jrc_22ak351-leaf-3m/cell/meshes/{cell_id}.ply"
-    cell_mesh = trimesh.load_mesh(cell_mesh_file)
-    cell_mesh.vertices = cell_mesh.vertices[:, ::-1]  # vertices are in x,y,z
-    num_vertices = len(cell_mesh.vertices)
-    num_plasmodesmata = len(cell_plasmodesmata_coords)
-
-    # Define a simple mesh: a single triangle
-    # vertices = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
-    # faces = np.array([[0, 1, 2]])
-
-    # Define new points to insert (make sure they lie in the triangle)
-    new_points = np.array([[0.3, 0.3, 0.0], [0.2, 0.5, 0.0]])
-
-    updated_vertices, updated_faces = insert_points_into_mesh_original(
-        cell_mesh, cell_plasmodesmata_coords
+    coords_per_cell = (
+        merged_df.groupby("Cell ID")
+        .apply(
+            lambda df: df[
+                [
+                    "Plasmodesmata COM X (nm)",
+                    "Plasmodesmata COM Y (nm)",
+                    "Plasmodesmata COM Z (nm)",
+                ]
+            ].to_numpy()
+        )
+        .reset_index(name="plasmodesmata_coords")
     )
-    # updated_vertices_new, updated_faces_new = insert_points_allow_duplicates(
+
+    # 2. Merge that back onto the cell DataFrame (one row per cell)
+    result_df = cell_df.merge(coords_per_cell, on="Cell ID", how="left")
+    
+    
+
+    # cell_id = 364  # 390
+    # cell_plasmodesmata_coords = merged_df[merged_df["Cell ID"] == cell_id][
+    #     [
+    #         "Plasmodesmata COM Z (nm)",
+    #         "Plasmodesmata COM Y (nm)",
+    #         "Plasmodesmata COM X (nm)",
+    #     ]
+    # ].to_numpy()
+
+    # # read in mesh
+    # cell_mesh_file = f"/nrs/cellmap/ackermand/new_meshes/meshes/single_resolution/leaf-gall/jrc_22ak351-leaf-3m/cell/meshes/{cell_id}.ply"
+    # cell_mesh = trimesh.load_mesh(cell_mesh_file)
+    # cell_mesh.vertices = cell_mesh.vertices[:, ::-1]  # vertices are in x,y,z
+    # num_vertices = len(cell_mesh.vertices)
+    # num_plasmodesmata = len(cell_plasmodesmata_coords)
+
+    # # Define a simple mesh: a single triangle
+    # # vertices = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+    # # faces = np.array([[0, 1, 2]])
+
+    # # Define new points to insert (make sure they lie in the triangle)
+    # new_points = np.array([[0.3, 0.3, 0.0], [0.2, 0.5, 0.0]])
+
+    # updated_vertices, updated_faces = insert_points_into_mesh_original(
     #     cell_mesh, cell_plasmodesmata_coords
     # )
+    # # updated_vertices_new, updated_faces_new = insert_points_allow_duplicates(
+    # #     cell_mesh, cell_plasmodesmata_coords
+    # # )
 
-    # new_mesh = trimesh.Trimesh(
-    #     vertices=updated_vertices, faces=updated_faces, process=False
-    # )
-    # new_mesh.export("new_inserted.ply")
-    print("Updated vertices:")
-    print(updated_vertices)
-    print("\nUpdated faces:")
-    print(updated_faces)
+    # # new_mesh = trimesh.Trimesh(
+    # #     vertices=updated_vertices, faces=updated_faces, process=False
+    # # )
+    # # new_mesh.export("new_inserted.ply")
+    # print("Updated vertices:")
+    # print(updated_vertices)
+    # print("\nUpdated faces:")
+    # print(updated_faces)
 
-    # Log the execution directory and run configuration
-    logger.info(f"Execution Directory: {run_properties.execution_directory}")
-    logger.info(f"Run Configuration: {run_properties.run_config}")
+    # # Log the execution directory and run configuration
+    # logger.info(f"Execution Directory: {run_properties.execution_directory}")
+    # logger.info(f"Run Configuration: {run_properties.run_config}")
+
+# %%

@@ -1,7 +1,13 @@
 # %%
 # Surface mesh point insertion using trimesh for point projection
-# Updated to handle duplicates, edge cases, and compute geodesic distances
-# Adds per-insertion geodesic validation to catch triangulation issues producing inf/NaN distances
+# Robust version:
+#   - Projects with trimesh.nearest.on_surface
+#   - Handles duplicates (including on-vertex and on-edge cases)
+#   - Splits faces with consistent orientation and exact edge snapping
+#   - Removes degenerate/duplicate faces after each insert
+#   - Tracks mapped_indices (one per input point) and insertion_counts
+#   - Optional per-insert geodesic validation using pygeodesic
+
 import numpy as np
 import trimesh
 from collections import defaultdict
@@ -9,186 +15,311 @@ from pygeodesic import geodesic
 from tqdm import tqdm
 import warnings
 
+# ---------------------------- helpers ---------------------------------
+
 
 def build_trimesh(vertices, faces):
-    """Build a fresh trimesh from vertex and face lists."""
     return trimesh.Trimesh(
-        vertices=np.array(vertices), faces=np.array(faces), process=False
+        vertices=np.asarray(vertices), faces=np.asarray(faces, dtype=int), process=False
     )
 
 
-def barycentric_coords(pt, v0, v1, v2):
-    """Compute barycentric coordinates for point pt in triangle v0,v1,v2."""
-    M = np.column_stack((v1 - v0, v2 - v0))
-    sol, *_ = np.linalg.lstsq(M, pt - v0, rcond=None)
-    w, v = sol
-    u = 1 - w - v
+def face_normal(verts, tri):
+    a, b, c = [np.asarray(verts[i], float) for i in tri]
+    n = np.cross(b - a, c - a)
+    ln = np.linalg.norm(n)
+    return n / ln if ln > 0 else n
+
+
+def orient_like(verts, tri, ref_normal):
+    """Flip triangle if needed so its normal has positive dot with ref_normal."""
+    n = face_normal(verts, tri)
+    if np.dot(n, ref_normal) < 0:
+        tri = (tri[0], tri[2], tri[1])
+    return tri
+
+
+def barycentric_coords(P, A, B, C):
+    # Robust 3D barycentric using areas
+    v0, v1, v2 = B - A, C - A, P - A
+    d00, d01, d11 = np.dot(v0, v0), np.dot(v0, v1), np.dot(v1, v1)
+    d20, d21 = np.dot(v2, v0), np.dot(v2, v1)
+    denom = d00 * d11 - d01 * d01
+    if abs(denom) < 1e-15:
+        return None
+    v = (d11 * d20 - d01 * d21) / denom
+    w = (d00 * d21 - d01 * d20) / denom
+    u = 1.0 - v - w
     return u, v, w
 
 
+def edge_to_faces_map(faces):
+    """Map undirected edge -> list of face indices sharing that edge."""
+    m = defaultdict(list)
+    for fi, (i, j, k) in enumerate(faces):
+        for e in ((i, j), (j, k), (k, i)):
+            m[frozenset(e)].append(fi)
+    return m
+
+
+def remove_faces_by_index(faces, to_remove):
+    to_remove = set(to_remove)
+    return [f for idx, f in enumerate(faces) if idx not in to_remove]
+
+
+def remove_degenerate_and_duplicate_faces(vertices, faces, area_tol=1e-14):
+    """Drop faces with repeated indices, near-zero area, or duplicates (ignoring winding)."""
+    unique = {}
+    cleaned = []
+    V = np.asarray(vertices)
+    for f in faces:
+        i, j, k = f
+        if i == j or j == k or k == i:
+            continue
+        # area check
+        a, b, c = V[i], V[j], V[k]
+        area2 = np.linalg.norm(np.cross(b - a, c - a))
+        if not np.isfinite(area2) or area2 < area_tol:
+            continue
+        key = tuple(sorted((i, j, k)))
+        if key in unique:
+            continue
+        unique[key] = f
+        cleaned.append(f)
+    return cleaned
+
+
 def _nonfinite_geodesics(vertices, faces, src_idx, tgt_indices):
-    """Return list of (target_idx, distance) for any non-finite geodesic distances."""
     geoalg = geodesic.PyGeodesicAlgorithmExact(
         np.asarray(vertices), np.asarray(faces, dtype=int)
     )
     dists, _ = geoalg.geodesicDistances([int(src_idx)], [int(t) for t in tgt_indices])
     bad = []
     for t, d in zip(tgt_indices, dists):
-        try:
-            df = float(d)
-        except Exception:
-            df = np.inf
+        df = float(d) if np.isfinite(d) else np.inf
         if not np.isfinite(df):
             bad.append((int(t), df))
     return bad
 
 
+# ---------------------------- main API --------------------------------
+
+
 def insert_points_into_mesh(
     mesh: trimesh.Trimesh,
     new_points,
-    tol: float = 1e-8,
-    validate_each_insert: bool = True,
-    on_validation_fail: str = "raise",  # or "warn"
+    tol=1e-8,
+    round_dp=9,
+    validate_each_insert=False,
+    on_validation_fail="raise",
 ):
     """
-    Inserts new_points into the mesh surface:
-      - Projects with trimesh.nearest.on_surface
-      - Skips duplicates (within tol) and counts them per inserted vertex
-      - Splits containing triangle; splits adjacent face if point on edge
-      - Records mapped index for each input point (length == len(new_points))
-      - *Optionally* validates geodesic distances after each insertion from the new
-        vertex to all previously inserted unique vertices; if any distance is
-        inf/NaN, raises/warns immediately.
+    Insert points onto a triangular surface mesh, avoiding duplicate vertices and
+    splitting faces with consistent orientation. Handles on-vertex and on-edge
+    cases and keeps a map from input points to final vertex indices.
 
     Returns:
-      updated_vertices: np.ndarray (N',3)
-      updated_faces:    np.ndarray (M',3)
-      insertion_counts: dict[new_vertex_index -> count]
-      mapped_indices:   list[int] of length len(new_points)
+        updated_vertices (N',3), updated_faces (M',3),
+        insertion_counts {vertex_index: count}, mapped_indices [len(new_points)].
     """
     vertices = mesh.vertices.tolist()
     faces = mesh.faces.tolist()
+    coord_to_index = {tuple(np.round(v, round_dp)): i for i, v in enumerate(vertices)}
     insertion_counts = defaultdict(int)
-    coord_to_index = {tuple(np.round(v, 8)): idx for idx, v in enumerate(vertices)}
     mapped_indices = []
-    unique_inserted = []  # track unique inserted vertex indices in order
+    unique_inserted = []  # in order
 
     for pt in tqdm(new_points, desc="Insert points"):
-        # Project onto surface
-        closest, _, face_ids = mesh.nearest.on_surface([pt])
-        proj = tuple(closest[0])
-        key = tuple(np.round(proj, 8))
-        # If already exists, reuse index
+        # Project to surface & find containing face
+        closest_pts, _, face_ids = mesh.nearest.on_surface([pt])
+        proj = np.asarray(closest_pts[0])
+        fid = int(face_ids[0])
+
+        # Check against existing vertices (including originals)
+        key = tuple(np.round(proj, round_dp))
         if key in coord_to_index:
             idx = coord_to_index[key]
             insertion_counts[idx] += 1
             mapped_indices.append(idx)
             continue
 
-        fid = int(face_ids[0])
+        # Get containing triangle data
         i0, i1, i2 = faces[fid]
-        v0, v1, v2 = map(np.array, (vertices[i0], vertices[i1], vertices[i2]))
-        u, v, w = barycentric_coords(np.array(proj), v0, v1, v2)
+        A, B, C = (
+            np.asarray(vertices[i0]),
+            np.asarray(vertices[i1]),
+            np.asarray(vertices[i2]),
+        )
+        bary = barycentric_coords(proj, A, B, C)
+        if bary is None:
+            # Fallback: just treat as interior to avoid crash
+            bary = (1 / 3, 1 / 3, 1 / 3)
+        u, v, w = bary
 
-        # Add new vertex
-        idx = len(vertices)
-        vertices.append(proj)
-        coord_to_index[key] = idx
-        insertion_counts[idx] += 1
-        mapped_indices.append(idx)
-        unique_inserted.append(idx)
+        # Snap to vertex if it's extremely close
+        if u > 1 - tol:
+            idx = i0
+            insertion_counts[idx] += 1
+            mapped_indices.append(idx)
+            continue
+        if v > 1 - tol:
+            idx = i1
+            insertion_counts[idx] += 1
+            mapped_indices.append(idx)
+            continue
+        if w > 1 - tol:
+            idx = i2
+            insertion_counts[idx] += 1
+            mapped_indices.append(idx)
+            continue
 
-        # Remove containing face
-        faces.pop(fid)
+        # On-edge detection; snap point onto the exact edge to avoid slivers
+        on_edge = None
+        if abs(u) < tol:
+            on_edge = (i1, i2)
+            proj = v * B + w * C  # exact edge position
+        elif abs(v) < tol:
+            on_edge = (i2, i0)
+            proj = w * C + u * A
+        elif abs(w) < tol:
+            on_edge = (i0, i1)
+            proj = u * A + v * B
 
-        # Check if point on an edge
-        zero_idx = [i for i, c in enumerate((u, v, w)) if abs(c) < tol]
-        if zero_idx:
-            # Identify shared edge opposite the ~0 barycentric coordinate
-            ei = zero_idx[0]
-            if ei == 0:
-                edge = {i1, i2}
-            elif ei == 1:
-                edge = {i2, i0}
-            else:
-                edge = {i0, i1}
-            # Attempt to split the adjacent face along the same edge
-            adj = mesh.face_adjacency
-            adj_edges = mesh.face_adjacency_edges
-            other_fid = None
-            for j, pair in enumerate(adj):
-                if fid in pair and set(adj_edges[j]) == edge:
-                    other_fid = pair[0] if pair[1] == fid else pair[1]
-                    break
-            tris = [(i0, i1, i2)]
-            if other_fid is not None:
-                tris.append(tuple(mesh.faces[other_fid]))
-                # Remove adjacent face as well; adjust index if needed
-                faces.pop(other_fid if other_fid < fid else other_fid - 1)
-            for tri in tris:
-                a, b, c = tri
-                shared = list(edge)
-                opp = next(x for x in tri if x not in edge)
-                s0, s1 = shared
-                faces.extend([(s0, idx, opp), (idx, s1, opp)])
+        # Re-check duplicate after snapping
+        key = tuple(np.round(proj, round_dp))
+        if key in coord_to_index:
+            idx = coord_to_index[key]
+            insertion_counts[idx] += 1
+            mapped_indices.append(idx)
+            continue
+
+        # Create new vertex
+        new_idx = len(vertices)
+        vertices.append(tuple(proj))
+        coord_to_index[key] = new_idx
+        insertion_counts[new_idx] += 1
+        mapped_indices.append(new_idx)
+        unique_inserted.append(new_idx)
+
+        # Reference normal for orientation consistency
+        ref_n = face_normal(vertices, (i0, i1, i2))
+
+        # Build edge map BEFORE removing faces
+        e2f = edge_to_faces_map(faces)
+
+        # Which faces to remove and which to add
+        faces_to_remove = set()
+        faces_to_add = []
+
+        if on_edge is None:
+            # Strict interior: split fid into three
+            faces_to_remove.add(fid)
+            tris = [
+                (i0, i1, new_idx),
+                (i1, i2, new_idx),
+                (i2, i0, new_idx),
+            ]
+            faces_to_add.extend([orient_like(vertices, t, ref_n) for t in tris])
         else:
-            # Strict interior: split into three
-            faces.extend([(i0, i1, idx), (i1, i2, idx), (i2, i0, idx)])
+            # Edge split: split both adjacent faces along the shared edge, if both exist
+            edge_key = frozenset(on_edge)
+            adj_faces = e2f.get(edge_key, [])
+            # Remove all adj faces that use this edge (usually 1 or 2)
+            for afi in adj_faces:
+                faces_to_remove.add(afi)
+            # For each adjacent face, split into two
+            for afi in adj_faces if adj_faces else [fid]:
+                a, b, c = faces[afi]
+                # identify ordering relative to edge
+                if frozenset((a, b)) == edge_key:
+                    shared = (a, b)
+                    opp = c
+                elif frozenset((b, c)) == edge_key:
+                    shared = (b, c)
+                    opp = a
+                else:
+                    shared = (c, a)
+                    opp = b
+                s0, s1 = shared
+                tris = [(s0, new_idx, opp), (new_idx, s1, opp)]
+                # Use this face's normal as reference for orientation
+                local_n = face_normal(vertices, (a, b, c))
+                faces_to_add.extend([orient_like(vertices, t, local_n) for t in tris])
 
-        # Rebuild mesh for next steps and (optionally) validate geodesics
+        # Apply removals/additions without index shifting issues
+        faces = remove_faces_by_index(faces, faces_to_remove)
+        faces.extend(faces_to_add)
+
+        # Cleanup: drop degenerate & duplicate faces, then rebuild mesh
+        faces = remove_degenerate_and_duplicate_faces(vertices, faces)
         mesh = build_trimesh(vertices, faces)
 
+        # Optional: per-insert geodesic validation to catch topology issues early
         if validate_each_insert and len(unique_inserted) > 1:
-            # Validate distances from the newest vertex to all prior unique insertions
             prev = unique_inserted[:-1]
-            bad = _nonfinite_geodesics(vertices, faces, idx, prev)
+            bad = _nonfinite_geodesics(vertices, faces, new_idx, prev)
             if bad:
                 msg = (
-                    f"Non-finite geodesic distances after inserting vertex {idx} at {proj}. "
-                    f"Problematic targets: {bad}\n"
-                    f"Hint: this often indicates a disconnected surface, inverted/degenerate faces, "
-                    f"or a bad edge split."
+                    f"Non-finite geodesics after inserting vertex {new_idx}: {bad}. "
+                    f"Likely topology issue (disconnected component, duplicate/degenerate faces)."
                 )
                 if on_validation_fail == "raise":
                     raise RuntimeError(msg)
                 else:
                     warnings.warn(msg)
 
-    updated_vertices = np.array(vertices)
-    updated_faces = np.array(faces, dtype=int)
+    updated_vertices = np.asarray(vertices)
+    updated_faces = np.asarray(faces, dtype=int)
     return updated_vertices, updated_faces, dict(insertion_counts), mapped_indices
 
 
-# Example usage and geodesic distance computation
-def example():
-    # Sample mesh
-    verts = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]])
-    faces = np.array([[0, 1, 2]])
-    mesh = trimesh.Trimesh(vertices=verts, faces=faces, process=False)
+# ------------------------- example & distances -------------------------
 
-    # Points to insert (with duplicates and an edge point)
-    new_pts = [(0.5, 0.0, 0), (0.5, 0.0, 0), (0.3, 0.3, 0)]
-    updated_vertices, updated_faces, insertion_counts, mapped_indices = (
-        insert_points_into_mesh(
-            mesh, new_pts, validate_each_insert=True, on_validation_fail="raise"
-        )
-    )
 
-    # Compute geodesic distances among each original insertion (including duplicates mapping)
-    geoalg = geodesic.PyGeodesicAlgorithmExact(updated_vertices, updated_faces)
+def compute_pairwise_geodesic_for_inputs(
+    updated_vertices, updated_faces, mapped_indices
+):
+    """Return P x P geodesic matrix for the P original input points, using mapped_indices."""
     P = len(mapped_indices)
-    dist_matrix = np.zeros((P, P), dtype=float)
+    D = np.zeros((P, P), dtype=float)
+    geoalg = geodesic.PyGeodesicAlgorithmExact(updated_vertices, updated_faces)
     for i in tqdm(range(P), desc="Geodesic distances"):
         src = mapped_indices[i]
-        targets = [mapped_indices[j] for j in range(i, P)]
-        dists, _ = geoalg.geodesicDistances([src], targets)
-        dist_matrix[i, i:] = dists
-        dist_matrix[i:, i] = dists
+        t_subset = mapped_indices[i:]
+        dists, _ = geoalg.geodesicDistances([src], t_subset)
+        D[i, i:] = dists
+        D[i:, i] = dists
+    return D
 
-    print("Pairwise geodesic distance matrix (per original points):")
-    print(dist_matrix)
-    print("Insertion counts (per unique inserted vertex index):")
-    print(insertion_counts)
+
+def example():
+    # Minimal demo on a single triangle
+    verts = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]], float)
+    faces = np.array([[0, 1, 2]], int)
+    base = build_trimesh(verts, faces)
+
+    # Points include duplicates, on-edge, and interior
+    pts = [
+        (0.5, 0.0, 0.0),  # on edge 0-1
+        (0.5, 0.0, 0.0),  # duplicate
+        (0.25, 0.25, 0.0),  # interior
+        (0.0, 1.0, 0.0),  # exactly existing vertex -> maps to idx 2
+    ]
+
+    V2, F2, counts, mapped = insert_points_into_mesh(
+        base,
+        pts,
+        tol=1e-8,
+        round_dp=9,
+        validate_each_insert=True,
+        on_validation_fail="warn",
+    )
+
+    D = compute_pairwise_geodesic_for_inputs(V2, F2, mapped)
+    print("mapped_indices:", mapped)
+    print("insertion_counts:", counts)
+    print("V shape:", V2.shape, "F shape:", F2.shape)
+    print("D:\n", D)
 
 
 def example_real():
@@ -254,8 +385,15 @@ def example_real():
     cell_mesh = trimesh.load_mesh(cell_mesh_file)
     cell_mesh.vertices = cell_mesh.vertices  # %%
     updated_vertices, updated_faces, insertion_counts, mapped_indices = (
-        insert_points_into_mesh(cell_mesh, cell_plasmodesmata_coords)
+        insert_points_into_mesh(
+            cell_mesh, cell_plasmodesmata_coords, validate_each_insert=True
+        )
     )
+    return updated_vertices, updated_faces, insertion_counts, mapped_indices
 
-example_real()
+
+updated_vertices, updated_faces, insertion_counts, mapped_indices = example_real()
+mesh = build_trimesh(updated_vertices, updated_faces)
+_ = mesh.export("example_mesh.ply")
+
 # %%

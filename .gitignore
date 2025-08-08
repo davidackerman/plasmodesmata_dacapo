@@ -1,3 +1,4 @@
+analysis/configs
 **/dask-scratch-space/
 */backup*
 logs/

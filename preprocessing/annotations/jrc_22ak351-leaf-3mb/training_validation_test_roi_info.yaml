@@ -1,61 +1,59 @@
 resolution: 8
 annotations:
   split_by_rois:
-      - /groups/scicompsoft/home/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-3mb/annotations_20250114_182135.csv
-      - /groups/scicompsoft/home/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-3mb/annotations_20250114_182342.csv
-      - /groups/scicompsoft/home/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-3mb/annotations_20250114_182457.csv
+  - /groups/scicompsoft/home/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-3mb/annotations_20250818_154715.csv
 rois_to_split:
   validation_test:
-    - roi_name: "01"
-      x: 7776-8936
-      y: 2616-6024
-      z: 9884-11680
-      split_dimension: do_not_split
-      type_if_do_not_split: test
-    - roi_name: "02"
-      x: 11264-13464
-      y: 10176-11436
-      z: 11748-13924
-      split_dimension: do_not_split
-      type_if_do_not_split: validation
-    - roi_name: "03"
-      x: 1204-3564
-      y: 13532-14872
-      z: 9856-12184
-      split_dimension: do_not_split
-      type_if_do_not_split: validation
-    - roi_name: "04"
-      x: 8497-9234
-      y: 8486-9484
-      z: 9070-10062
-      split_dimension: do_not_split
-      keep_if_empty: True
-      type_if_do_not_split: validation
-    - roi_name: "05"
-      x: 7149-7971
-      y: 12370-12987
-      z: 9262-12290
-      split_dimension: do_not_split
-      keep_if_empty: True
-      type_if_do_not_split: test
-    - roi_name: "06"
-      x: 7235-8645
-      y: 7548-9155
-      z: 2-1225
-      split_dimension: do_not_split
-      keep_if_empty: True
-      type_if_do_not_split: validation
-    - roi_name: "07"
-      x: 7407-8331
-      y: 6366-7794
-      z: 14559-16533
-      split_dimension: do_not_split
-      keep_if_empty: True
-      type_if_do_not_split: test
-    - roi_name: "08"
-      x: 8202-8979
-      y: 3814-5034
-      z: 4454-5930
-      split_dimension: do_not_split
-      keep_if_empty: True
-      type_if_do_not_split: validation
+  - roi_name: '01'
+    x: 11824-13716
+    y: 11296-10284
+    z: 13824-11684
+    split_dimension: do_not_split
+    type_if_do_not_split: test
+  - roi_name: '02'
+    x: 9104-8180
+    y: 3268-4496
+    z: 9900-11744
+    split_dimension: do_not_split
+    type_if_do_not_split: validation
+  - roi_name: '03'
+    x: 1612-3564
+    y: 14336-13608
+    z: 11604-9728
+    split_dimension: do_not_split
+    type_if_do_not_split: validation
+  - roi_name: '04'
+    x: 7624-8736
+    y: 6528-7612
+    z: 14432-15904
+    split_dimension: do_not_split
+    keep_if_empty: true
+    type_if_do_not_split: validation
+  - roi_name: '05'
+    x: 7280-8152
+    y: 12588-13084
+    z: 10860-9740
+    split_dimension: do_not_split
+    keep_if_empty: true
+    type_if_do_not_split: test
+  - roi_name: '06'
+    x: 8824-9396
+    y: 8664-9240
+    z: 10076-9240
+    split_dimension: do_not_split
+    keep_if_empty: true
+    type_if_do_not_split: validation
+  - roi_name: '07'
+    x: 8172-9232
+    y: 3844-4852
+    z: 4368-5600
+    split_dimension: do_not_split
+    keep_if_empty: true
+    type_if_do_not_split: test
+  - roi_name: 08
+    x: 7252-10152
+    y: 8500-9388
+    z: 12-1204
+    split_dimension: do_not_split
+    keep_if_empty: true
+    type_if_do_not_split: validation

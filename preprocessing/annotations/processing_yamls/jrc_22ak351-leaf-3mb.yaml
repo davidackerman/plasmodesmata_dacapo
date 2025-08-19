@@ -13,7 +13,7 @@ iterations: [25000,500000,25000]
 analysis_info:
   - name: jrc_22ak351-leaf-3mb
     training_validation_test_roi_yaml: /groups/cellmap/cellmap/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-3mb/training_validation_test_roi_info.yaml
-    raw_path: /nrs/cellmap/data/jrc_22ak351-leaf-3mb/jrc_22ak351-leaf-3mb.n5/em/fibsem-uint8/s1
+    raw_path: /nrs/cellmap/data/jrc_22ak351-leaf-3mb/jrc_22ak351-leaf-3mb.zarr/recon-1/em/fibsem-uint8/s1
     gt_path: /nrs/cellmap/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-3mb/s0
     inference_base_path: /nrs/cellmap/ackermand/predictions/leaf-gall/jrc_22ak351-leaf-3mb/jrc_22ak351-leaf-3mb.zarr
     metrics_base_path: /nrs/cellmap/ackermand/validation_and_testing_scores/leaf-gall/jrc_22ak351-leaf-3mb

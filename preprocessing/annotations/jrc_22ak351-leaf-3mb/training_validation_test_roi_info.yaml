@@ -6,20 +6,20 @@ rois_to_split:
   validation_test:
   - roi_name: '01'
     x: 11824-13716
-    y: 11296-10284
-    z: 13824-11684
+    y: 10284-11296
+    z: 11684-13824
     split_dimension: do_not_split
     type_if_do_not_split: test
   - roi_name: '02'
-    x: 9104-8180
+    x: 8180-9104
     y: 3268-4496
     z: 9900-11744
     split_dimension: do_not_split
     type_if_do_not_split: validation
   - roi_name: '03'
     x: 1612-3564
-    y: 14336-13608
-    z: 11604-9728
+    y: 13608-14336
+    z: 9728-11604
     split_dimension: do_not_split
     type_if_do_not_split: validation
   - roi_name: '04'
@@ -32,14 +32,14 @@ rois_to_split:
   - roi_name: '05'
     x: 7280-8152
     y: 12588-13084
-    z: 10860-9740
+    z: 9740-10860
     split_dimension: do_not_split
     keep_if_empty: true
     type_if_do_not_split: test
   - roi_name: '06'
     x: 8824-9396
     y: 8664-9240
-    z: 10076-9240
+    z: 9240-10076
     split_dimension: do_not_split
     keep_if_empty: true
     type_if_do_not_split: validation

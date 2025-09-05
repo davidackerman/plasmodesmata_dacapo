@@ -18,3 +18,10 @@ analysis_info:
     inference_base_path: /nrs/cellmap/ackermand/predictions/leaf-gall/jrc_22ak351-leaf-3mb/jrc_22ak351-leaf-3mb.zarr
     metrics_base_path: /nrs/cellmap/ackermand/validation_and_testing_scores/leaf-gall/jrc_22ak351-leaf-3mb
 postprocessing_suffixes: [_filter_val_0.5_lrb_ratio_-0.08_adj_0.5_lr_-1.2]
+postprocessing:
+  minimum_volume_nm_3: 90075
+  maximum_volume_nm_3: 22441729
+  mask_config:
+    prediction_mask:
+      path: /nrs/cellmap/ackermand/cellmap/leaf-gall/prediction_masks.zarr/dilation_iterations_8_jrc_22ak351-leaf-3mb/s0
+      mask_type: inclusive 

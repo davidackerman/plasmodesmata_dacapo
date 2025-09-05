@@ -61,33 +61,14 @@ for dataset in ["jrc_22ak351-leaf-2lb","jrc_22ak351-leaf-3mb","jrc_22ak351-leaf-
 
     # expand raw_mask by 1
     raw_background_dilated = fastmorph.dilate(raw_background, iterations=1)
-    #cells_eroded = fastmorph.erode(cells, erode_border=False)
-    #cell_borders = cells-cells_eroded
-    # inclusive_mask = (1 - (cells_eroded > 0))
-    # inclusive_mask[raw_background_dilated] = 0
-    # # the inclusive mask is a conservative estimate just to make sure that we don't include regions bordering empty raw regions but do include all others
-    # inclusive_mask = edt.edt(1-inclusive_mask) < max_iterations * 2
-    #cells[raw_background_dilated] = 0
     cells_signed_distance_transform = edt.sdf(cells)
-    # cell_inner_outer_border = np.abs(cells_signed_distance_transform) <= np.sqrt(3)
-    # cell_inner_outer_border[raw_background_dilated] = 0
-    # cell_inner_outer_border_distance_transform = edt.edt(1-cell_inner_outer_border)
     raw_background_dilated_distance_transform = edt.edt(1-raw_background_dilated)
-    #cells_distance_transform = edt.edt(cells)
-    # voxels are valid if they are further from the raw background than they are from the cell boundary
-    # valid_voxels = raw_background_dilated_distance_transform>=np.abs(cells_signed_distance_transform)
     cells_inside = np.abs(cells_signed_distance_transform)
     cells_inside[cells_signed_distance_transform <0] = -1
 
     # invalid if distance to raw_background_dilated is less than distance inside cell, means its bordering black 
     invalid_voxels = raw_background_dilated_distance_transform<=cells_inside
 
-    # distance_from_cell = distance_transform_edt(cells_eroded == 0)
-    # distance_in_cell = distance_transform_edt(cells_eroded > 0)
-    # set 0 distances to inf since we do both ways
-    # distance_from_cell[distance_from_cell==0] = np.inf
-    # distance_in_cell[distance_in_cell==0] = np.inf
-    #inclusive_mask_dilated = fastmorph.dilate(inclusive_mask_dilated, iterations=max_iterations+1)
     for d in range(1, max_iterations):
         print(f"  Creating mask for dilation {d}...")
         output_ds = prepare_ds(

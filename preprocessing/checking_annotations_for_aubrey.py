@@ -8,7 +8,7 @@ import os
 output_dir = "tmp_proofreading_jsons"
 os.makedirs(output_dir, exist_ok=True)
 
-best_networks = {"jrc_22ak351-leaf-2lb": ["finetuned_3d_lsdaffs_weight_ratio_0.5_jrc_22ak351-leaf-2l_plasmodesmata_all_training_points_unet_default_trainer_lr_0.00005_bs_2__1", "iteration_75000"],"jrc_22ak351-leaf-3mb": ["finetuned_3d_lsdaffs_weight_ratio_0.5_combined_healthy_and_gall_plasmodesmata_all_training_points_unet_default_trainer_lr_0.00005_bs_2__0", "iteration_425000"],"jrc_22ak351-leaf-3rb": ["finetuned_3d_lsdaffs_weight_ratio_0.5_jrc_22ak351-leaf-3r_plasmodesmata_all_training_points_unet_default_trainer_lr_0.00005_bs_2__0", "iteration_250000"]}
+best_networks = {"jrc_22ak351-leaf-2lb": ["finetuned_3d_lsdaffs_weight_ratio_0.5_jrc_22ak351-leaf-2l_plasmodesmata_all_training_points_unet_default_trainer_lr_0.00005_bs_2__1", "iteration_325000"],"jrc_22ak351-leaf-3mb":["finetuned_3d_lsdaffs_weight_ratio_0.5_combined_healthy_and_gall_plasmodesmata_all_training_points_unet_default_trainer_lr_0.00005_bs_2__0", "iteration_425000"],"jrc_22ak351-leaf-3rb": ["finetuned_3d_lsdaffs_weight_ratio_0.5_combined_healthy_plasmodesmata_all_training_points_unet_default_trainer_lr_0.00005_bs_2__0", "iteration_425000"]}
 for dataset in ["jrc_22ak351-leaf-2lb", "jrc_22ak351-leaf-3mb","jrc_22ak351-leaf-3rb"]:
     run_name, iteration = best_networks[dataset]
     manual_annotations = f"precomputed://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/plasmodesmata/neuroglancer_annotations/{dataset}/removed_annotations"

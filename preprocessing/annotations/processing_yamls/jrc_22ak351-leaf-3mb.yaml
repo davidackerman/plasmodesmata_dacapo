@@ -17,10 +17,22 @@ analysis_info:
     gt_path: /nrs/cellmap/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-3mb/s0
     inference_base_path: /nrs/cellmap/ackermand/predictions/leaf-gall/jrc_22ak351-leaf-3mb/jrc_22ak351-leaf-3mb.zarr
     metrics_base_path: /nrs/cellmap/ackermand/validation_and_testing_scores/leaf-gall/jrc_22ak351-leaf-3mb
-postprocessing_suffixes: [_filter_val_0.5_lrb_ratio_-0.08_adj_0.5_lr_-1.2]
+postprocessing_sweep:
+  - adjacent_edge_bias: -0.5
+    lr_biases: [-0.8, -0.9]
+    filter_val: 0.55
+  - adjacent_edge_bias: -0.4
+    lr_biases: [-0.8, -0.9]
+    filter_val: 0.55
+  - adjacent_edge_bias: -0.45
+    lr_biases: [-0.9, -0.9]
+    filter_val: 0.5
+  - adjacent_edge_bias: -0.4
+    lr_biases: [-0.24, -0.72]
+    filter_val: 0.5
 postprocessing:
   minimum_volume_nm_3: 90075
-  maximum_volume_nm_3: 22441729
+  maximum_volume_nm_3: 5610433
   mask_config:
     prediction_mask:
       path: /nrs/cellmap/ackermand/cellmap/leaf-gall/prediction_masks.zarr/dilation_iterations_8_jrc_22ak351-leaf-3mb/s0

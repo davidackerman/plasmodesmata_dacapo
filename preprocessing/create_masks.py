@@ -82,44 +82,6 @@ for dataset in ["jrc_22ak351-leaf-2lb","jrc_22ak351-leaf-3mb","jrc_22ak351-leaf-
         )
         output_ds[total_roi] = (np.abs(cells_signed_distance_transform) <=d) & (raw_foreground) & (~invalid_voxels)
 
-  # %%
-# import matplotlib.pyplot as plt
-# import fastremap
-# edt.edt(cells_signed_distance_transform==0)
-# plt.figure()
-# # cells_binarized = cells>0
-# # cells_binarized[raw_background_dilated] = 1
-# # cells_binarized_dt = edt.edt(cells_binarized)
-# # cell_ids = fastremap.unique(cells)
-# # cell_dt = np.zeros_like(cells,dtype=np.float32)
-# # for cell_id in cell_ids:
-# #     print(f"Processing cell {cell_id}...")
-# #     if cell_id == 0:
-# #         continue
-# #     cell_mask = cells==cell_id
-# #     cell_mask[raw_background_dilated] = 1
-# #     cell_mask_dt = edt.edt(cell_mask)
-# #     cell_mask_dt[cell_mask==0] = 0
-# #     cell_dt += cell_mask_dt
-# plt.imshow(cell_mask_dt[100])
-# plt.figure()
-# plt.imshow((cells_signed_distance_transform[100]<9))
-# plt.figure()
-# plt.imshow(cells[100])
-# plt.figure()
-# # cells_inside = cells_signed_distance_transform
-# # cells_inside[cells_inside <0] = np.inf
-# # cells_inside = np.abs(cells_inside)
-# # cells_outside = np.abs(cells_signed_distance_transform) * (cells_signed_distance_transform < 0)
-# plt.imshow(cells_inside[100])
-# #plt.figure()
-# #plt.imshow(cells_outside[100])
-# invalid_voxels = raw_background_dilated_distance_transform<=cells_inside
-# plt.figure()
-# o = (np.abs(cells_signed_distance_transform) <=9) & (raw_foreground) & (~invalid_voxels)
-# plt.imshow(o[100])
-# plt.figure()
-# plt.imshow(invalid_voxels[100])
 
 #%% get cell instances
 from image_data_interface import ImageDataInterface

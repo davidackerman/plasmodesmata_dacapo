@@ -1,0 +1,200 @@
+# %%
+
+# Write out annotations
+from annotation_processing_utils.process.cylindrical_annotations import (
+    CylindricalAnnotations,
+)
+import getpass
+
+username = getpass.getuser()
+organelle = "plasmodesmata"
+dataset = "jrc_22ak351-leaf-3m"
+# %%
+radius = 4
+ca = CylindricalAnnotations(
+    organelle=organelle,
+    training_validation_test_roi_info_yaml=f"/groups/scicompsoft/home/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/{dataset}/training_validation_test_roi_info.yaml",
+    output_mask_zarr=f"/nrs/cellmap/{username}/cellmap/{organelle}/annotation_intersection_masks.zarr",
+    output_gt_zarr=f"/nrs/cellmap/{username}/cellmap/{organelle}/annotations_as_cylinders.zarr",
+    output_training_points_zarr=f"/nrs/cellmap/{username}/cellmap/{organelle}/training_points.zarr",
+    output_annotations_directory=f"/nrs/cellmap/{username}/cellmap/{organelle}/neuroglancer_annotations",
+    dataset=dataset,
+    radius=radius,
+)
+ca.standard_processing()
+# save ca to pkl
+ca.save(f"./{dataset}_cylindrical_annotations.pkl")
+# # %%
+# import pickle
+
+# # load pickle
+# with open(f"./cylindrical_annotations.pkl", "rb") as f:
+#     ca = pickle.load(f)
+# print(ca.training_points)
+
+
+# %%
+# Save out dacapo runs
+# import dask
+# from dask.distributed import LocalCluster, Client
+
+
+# @dask.delayed
+# def lazy_create_dacapo_run(
+#     lsds_to_affs_weight_ratio, batch_size, repetitions=2, validation_interval=1_000_000
+# ):
+#     ca.create_dacapo_run(
+#         repetitions=repetitions,
+#         lsds_to_affs_weight_ratio=lsds_to_affs_weight_ratio,
+#         batch_size=batch_size,
+#         validation_interval=1_000_000,
+#     )
+
+import time
+
+# lazy_results = []
+for lsds_to_affs_weight_ratio in [0.5, 1.0, 2.0]:
+    for batch_size in [2, 8]:
+        # print current time
+        print(time.ctime())
+        ca.create_dacapo_run(
+            repetitions=2,
+            lsds_to_affs_weight_ratio=lsds_to_affs_weight_ratio,
+            batch_size=batch_size,
+            validation_interval=1_000_000,
+        )
+
+
+# cluster = LocalCluster(n_workers=10, threads_per_worker=1, host="0.0.0.0")
+# with Client(cluster) as client:
+#     dask.compute(*lazy_results)
+# %%
+# Visualize pipeline
+from dacapo.store.create_store import create_config_store
+from dacapo.experiments import Run
+
+config_store = create_config_store()
+run_config = config_store.retrieve_run_config(
+    "finetuned_3d_lsdaffs_weight_ratio_0.5_jrc_22ak351-leaf-3m_plasmodesmata_all_training_points_unet_default_trainer_lr_0.00015_bs_6__0"
+)
+run = Run(run_config)
+run.visualize_pipeline()
+# %% create prediction mask
+
+# from funlib.persistence import open_ds, prepare_ds
+# from funlib.geometry import Roi, Coordinate
+# from scipy.ndimage import binary_dilation, distance_transform_edt
+# import numpy as np
+
+# from funlib.persistence import open_ds, prepare_ds
+# from funlib.geometry import Roi, Coordinate
+# from scipy.ndimage import binary_dilation, distance_transform_edt
+# import numpy as np
+# import pandas as pd
+# from image_data_interface import ImageDataInterface
+# from scipy.ndimage import distance_transform_edt
+
+# cell_segmentation_paths = pd.read_csv("cell_segmentation_paths.csv")
+# cell_segmentation_path = cell_segmentation_paths[
+#     cell_segmentation_paths["dataset"] == dataset
+# ].iloc[0]["path"]
+
+# output_voxel_size = Coordinate([256, 256, 256])
+# idi = ImageDataInterface(cell_segmentation_path, output_voxel_size=output_voxel_size)
+
+# cells = idi.to_ndarray_ts()
+# distance_outside_cell = distance_transform_edt(cells == 0)
+
+# for d in range(1, 4):
+#     inclusive_mask = distance_outside_cell <= d
+#     # inclusive_mask_dilated = binary_dilation(inclusive_mask, iterations=d)
+
+#     output_ds = prepare_ds(
+#         "/nrs/cellmap/ackermand/cellmap/leaf-gall/prediction_masks.zarr",
+#         f"dilation_iterations_{d}_{dataset}/s0",
+#         total_roi=idi.roi,
+#         voxel_size=output_voxel_size,
+#         dtype=np.uint8,
+#         write_size=Coordinate(np.array([64, 64, 64]) * output_voxel_size[0]),
+#         delete=True,
+#     )
+#     output_ds[idi.roi] = inclusive_mask
+
+# %%
+# Postprocessing
+import annotation_processing_utils.postprocess.get_best
+from importlib import reload
+
+reload(annotation_processing_utils.postprocess.get_best)
+from annotation_processing_utils.postprocess.get_best import GetBest
+import numpy as np
+
+gb = GetBest(
+    "/groups/cellmap/cellmap/ackermand/Programming/annotation-processing-utils/ignore/yamls/jrc_22ak351-leaf-3m.yaml"
+)
+df = gb.get_combined_df()
+
+# Group by the specified columns
+grouped = df.groupby(["run", "iteration", "validation_or_test"])
+# Aggregate statistics for each group
+aggregated = grouped.agg(
+    {"tp": "sum", "fp": "sum", "fn": "sum", "iou": "mean"}
+).reset_index()
+aggregated["precision"] = aggregated["tp"] / (
+    aggregated["tp"] + aggregated["fp"]
+).replace(0, np.nan)
+aggregated["recall"] = aggregated["tp"] / (aggregated["tp"] + aggregated["fn"]).replace(
+    0, np.nan
+)
+failed = gb.f1_score()
+gb.plot_f1_scores("validation", plot_type="histogram", merge_repetitions=True)
+gb.plot_f1_scores("validation", merge_repetitions=False)
+
+# %%
+import matplotlib.pyplot as plt
+
+runs = aggregated["run"].unique()
+plt.figure(figsize=(10, 6))
+for run in runs:
+    run_data = aggregated[
+        (aggregated["validation_or_test"] == "validation") & (aggregated["run"] == run)
+    ]
+
+    data_subset = run_data[run_data["validation_or_test"] == "validation"]
+    plt.plot(
+        data_subset["iteration"],
+        data_subset["iou"],
+        label=f"{run}",
+    )
+
+plt.xlabel("Iteration")
+plt.ylabel("Score")
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# # %%
+# import numpy as np
+# from scipy.ndimage import distance_transform_edt
+# import matplotlib.pyplot as plt
+
+# # Create a binary image (0 = object, 1 = background)
+# binary_array = np.array(
+#     [
+#         [0, 0, 1, 0, 0],
+#         [0, 1, 1, 1, 1],
+#         [1, 1, 1, 1, 1],
+#         [0, 1, 1, 1, 0],
+#         [0, 0, 1, 0, 0],
+#     ]
+# )
+
+# # Compute the Euclidean Distance Transform
+# edt = distance_transform_edt(binary_array)
+
+# # Display the result
+# plt.imshow(edt, cmap="viridis")
+# plt.colorbar(label="Distance")
+# plt.title("Euclidean Distance Transform (EDT)")
+# plt.show()
+# %%

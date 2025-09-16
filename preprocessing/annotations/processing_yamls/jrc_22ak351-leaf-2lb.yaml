@@ -1,0 +1,39 @@
+runs: 
+  - finetuned_3d_lsdaffs_weight_ratio_0.5_jrc_22ak351-leaf-3m_plasmodesmata_all_training_points_unet_default_trainer_lr_0.00005_bs_2__0
+  - finetuned_3d_lsdaffs_weight_ratio_0.5_jrc_22ak351-leaf-3m_plasmodesmata_all_training_points_unet_default_trainer_lr_0.00005_bs_2__1
+  - finetuned_3d_lsdaffs_weight_ratio_0.5_jrc_22ak351-leaf-3r_plasmodesmata_all_training_points_unet_default_trainer_lr_0.00005_bs_2__0
+  - finetuned_3d_lsdaffs_weight_ratio_0.5_jrc_22ak351-leaf-3r_plasmodesmata_all_training_points_unet_default_trainer_lr_0.00005_bs_2__1
+  - finetuned_3d_lsdaffs_weight_ratio_0.5_combined_healthy_plasmodesmata_all_training_points_unet_default_trainer_lr_0.00005_bs_2__0
+  - finetuned_3d_lsdaffs_weight_ratio_0.5_combined_healthy_plasmodesmata_all_training_points_unet_default_trainer_lr_0.00005_bs_2__1
+  - finetuned_3d_lsdaffs_weight_ratio_0.5_combined_healthy_and_gall_plasmodesmata_all_training_points_unet_default_trainer_lr_0.00005_bs_2__0
+  - finetuned_3d_lsdaffs_weight_ratio_0.5_combined_healthy_and_gall_plasmodesmata_all_training_points_unet_default_trainer_lr_0.00005_bs_2__1
+  - finetuned_3d_lsdaffs_weight_ratio_0.5_jrc_22ak351-leaf-2l_plasmodesmata_all_training_points_unet_default_trainer_lr_0.00005_bs_2__0
+  - finetuned_3d_lsdaffs_weight_ratio_0.5_jrc_22ak351-leaf-2l_plasmodesmata_all_training_points_unet_default_trainer_lr_0.00005_bs_2__1
+iterations: [25000,500000,25000]
+analysis_info:
+  - name: jrc_22ak351-leaf-2lb
+    training_validation_test_roi_yaml: /groups/cellmap/cellmap/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-2lb/training_validation_test_roi_info.yaml
+    raw_path: /nrs/cellmap/data/jrc_22ak351-leaf-2lb/jrc_22ak351-leaf-2lb.zarr/recon-1/em/fibsem-uint8/s1
+    gt_path: /nrs/cellmap/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-2lb/s0
+    inference_base_path: /nrs/cellmap/ackermand/predictions/leaf-gall/jrc_22ak351-leaf-2lb/jrc_22ak351-leaf-2lb.zarr
+    metrics_base_path: /nrs/cellmap/ackermand/validation_and_testing_scores/leaf-gall/jrc_22ak351-leaf-2lb
+postprocessing_sweep:
+  - adjacent_edge_bias: -0.5
+    lr_biases: [-0.8, -0.9]
+    filter_val: 0.55
+  - adjacent_edge_bias: -0.4
+    lr_biases: [-0.8, -0.9]
+    filter_val: 0.55
+  - adjacent_edge_bias: -0.45
+    lr_biases: [-0.9, -0.9]
+    filter_val: 0.5
+  - adjacent_edge_bias: -0.4
+    lr_biases: [-0.24, -0.72]
+    filter_val: 0.5
+postprocessing:
+  minimum_volume_nm_3: 90075
+  maximum_volume_nm_3: 5610433
+  mask_config:
+    prediction_mask:
+      path: /nrs/cellmap/ackermand/cellmap/leaf-gall/prediction_masks.zarr/dilation_iterations_8_jrc_22ak351-leaf-2lb/s0
+      mask_type: inclusive 

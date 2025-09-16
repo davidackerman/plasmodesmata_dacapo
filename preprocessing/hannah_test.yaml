@@ -1,0 +1,10 @@
+resolution: 8
+annotations:
+  split_by_rois:
+      - /groups/cellmap/cellmap/ackermand/Programming/nuclear_pores_dacapo/preprocessing/annotations/jrc_sum159-1/annotations_20240925_183513.csv
+rois_to_split:
+  training_validation_test:
+    - roi_name: "jrc_sum-159-1"
+      x: 19471-39108
+      y: 3004-6564
+      z: 24609-34618

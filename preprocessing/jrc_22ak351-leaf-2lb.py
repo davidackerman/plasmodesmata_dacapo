@@ -23,7 +23,7 @@ ca = CylindricalAnnotations(
     output_gt_zarr=f"/nrs/cellmap/{username}/cellmap/{organelle}/annotations_as_cylinders.zarr",
     output_training_points_zarr=f"/nrs/cellmap/{username}/cellmap/{organelle}/training_points.zarr",
     output_annotations_directory=f"/nrs/cellmap/{username}/cellmap/{organelle}/neuroglancer_annotations",
-    raw_path=f"/nrs/cellmap/data/{dataset}/{dataset}.n5/em/fibsem-uint8/s1",
+    raw_path=f"/nrs/cellmap/data/{dataset}/{dataset}.zarr/recon-1/em/fibsem-uint8/s1",
     dataset=dataset,
     radius=radius,
 )
@@ -78,4 +78,9 @@ gb.plot_f1_scores("validation", plot_type="histogram", merge_repetitions=True)
 print(failed)
 # %%
 gb.all_f1_scores_df
+# %%
+from annotation_processing_utils.process.cylindrical_annotations import (
+    CylindricalAnnotations,
+)
+
 # %%

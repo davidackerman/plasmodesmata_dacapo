@@ -526,19 +526,19 @@ if __name__ == "__main__":
     )
 
     # get all cells matching id
-    cell_id = 364  # 390
+    cell_id = 100  # 390
     cell_plasmodesmata_coords = merged_df[merged_df["Cell ID"] == cell_id][
         [
-            "Plasmodesmata COM Z (nm)",
-            "Plasmodesmata COM Y (nm)",
             "Plasmodesmata COM X (nm)",
+            "Plasmodesmata COM Y (nm)",
+            "Plasmodesmata COM Z (nm)",
         ]
     ].to_numpy()
 
     # read in mesh
     cell_mesh_file = f"/nrs/cellmap/ackermand/new_meshes/meshes/single_resolution/leaf-gall/jrc_22ak351-leaf-3m/cell/meshes/{cell_id}.ply"
     cell_mesh = trimesh.load_mesh(cell_mesh_file)
-    cell_mesh.vertices = cell_mesh.vertices[:, ::-1]  # vertices are in x,y,z
+    cell_mesh.vertices = cell_mesh.vertices  # [:, ::-1]  # vertices are in x,y,z
     num_vertices = len(cell_mesh.vertices)
     num_plasmodesmata = len(cell_plasmodesmata_coords)
 
@@ -594,18 +594,18 @@ if __name__ == "__main__":
     from tqdm import tqdm
     import numpy as np
 
-    # n = len(indices)
-    # dist_matrix = np.zeros((n, n), dtype=float)
+    n = len(indices)
+    dist_matrix = np.zeros((n, n), dtype=float)
 
-    # for i in tqdm(range(n), desc="Geodesic distances"):
-    #     src = indices[i]
-    #     # only compute distances to j >= i
-    #     target_subset = indices[i:]
-    #     dists, _ = geoalg.geodesicDistances([src], target_subset)
-    #     # fill upper triangle
-    #     dist_matrix[i, i:] = dists
-    #     # mirror to lower triangle
-    #     dist_matrix[i:, i] = dists
+    for i in tqdm(range(n), desc="Geodesic distances"):
+        src = indices[i]
+        # only compute distances to j >= i
+        target_subset = indices[i:]
+        dists, _ = geoalg.geodesicDistances([src], target_subset)
+        # fill upper triangle
+        dist_matrix[i, i:] = dists
+        # mirror to lower triangle
+        dist_matrix[i:, i] = dists
 
     # this could be faster:
     import gdist
@@ -618,6 +618,10 @@ if __name__ == "__main__":
     new_dist_matrix = d[-len(indices) :, -len(indices) :]
     # %% plot
     import numpy as np
+
+    new_dist_matrix = np.load(
+        "/nrs/cellmap/ackermand/cellmap/analysisResults/leaf-gall/jrc_22ak351-leaf-3m/geodesic_distances/361_distances.npy"
+    )
 
     def compute_density(dist_matrix: np.ndarray, radius: float) -> np.ndarray:
         """
@@ -656,9 +660,9 @@ if __name__ == "__main__":
 
     # Scatter trace (colored by distance)
     scatter_trace = go.Scatter3d(
-        x=updated_vertices[len(verts) :, 0],
-        y=updated_vertices[len(verts) :, 1],
-        z=updated_vertices[len(verts) :, 2],
+        x=cell_plasmodesmata_coords[:, 2],  # updated_vertices[len(verts) :, 0],
+        y=cell_plasmodesmata_coords[:, 1],  # updated_vertices[len(verts) :, 1],
+        z=cell_plasmodesmata_coords[:, 0],  # updated_vertices[len(verts) :, 2],
         mode="markers",
         marker=dict(
             size=4,
@@ -863,4 +867,342 @@ if __name__ == "__main__":
 # fig.show()
 # # %%
 
+# %%
+# plot from dask results
+import pickle
+import trimesh
+import numpy as np
+
+
+def get_shrunk_mesh(mesh_path, factor=1):
+    # assuming you already have verts, faces from cell_mesh
+    mesh = trimesh.load_mesh(mesh_path, process=True, validate=True)
+    mesh.remove_unreferenced_vertices()
+    # mesh.compute_vertex_normals()
+
+    normals = mesh.vertex_normals  # outward normals
+    # we'll shrink *inward* by moving along -normal
+
+    def is_inside_all(d):
+        pts = verts - normals * d
+        return mesh.contains(pts).all()
+
+    # pick a safe upper bound for d (e.g. average edge length)
+    avg_edge = mesh.edges_unique_length.mean()
+    # lo, hi = 0.0, avg_edge * factor
+    # for _ in range(20):  # 20-step binary search → sub-µm precision
+    #     mid = (lo + hi) / 2
+    #     if is_inside_all(mid):
+    #         lo = mid
+    #     else:
+    #         hi = mid
+
+    # best_d = lo
+    # shrunk_verts = mesh.vertices - normals * best_d
+    # print(mesh.edges_unique_length.mean(), best_d)
+    shrunk_verts = mesh.vertices - normals * (mesh.edges_unique_length.mean() * factor)
+    shrunk_mesh = trimesh.Trimesh(vertices=shrunk_verts, faces=mesh.faces)
+    return shrunk_mesh
+
+
+dataset = "jrc_22ak351-leaf-3m"
+cell_id = 100
+data = pickle.load(
+    open(
+        f"/nrs/cellmap/ackermand/cellmap/analysisResults/leaf-gall/{dataset}/geodesic_distances/{cell_id}_distribution.pkl",
+        "rb",
+    )
+)
+plasmodesmata_indices = data["plasmodesmata_indices"]
+plasmodesmata_projected = data["updated_vertices"][plasmodesmata_indices, :]
+dist_matrix = data["distance_matrix"]
+shrunk_mesh = get_shrunk_mesh(
+    f"/nrs/cellmap/ackermand/new_meshes/meshes/single_resolution/leaf-gall/{dataset}/cell/meshes/{cell_id}.ply",
+    factor=0.5,
+)
+
+
+def compute_density(dist_matrix: np.ndarray, radius: float) -> np.ndarray:
+    """
+    For each row i in dist_matrix, counts how many entries
+    (other than itself) are ≤ radius.
+
+    Returns an array of shape (n,) where n = dist_matrix.shape[0].
+    """
+    # boolean mask where True if distance ≤ radius
+    within = dist_matrix <= radius
+    # sum along each row, subtract 1 to exclude self-distance==0
+    return within.sum(axis=1) - 1
+
+
+# example usage:
+x = 1000.0  # your chosen geodesic distance threshold
+densities = compute_density(dist_matrix, x)
+
+import plotly.graph_objects as go
+import plotly.io as pio
+
+pio.renderers.default = "vscode"
+
+# ---- your data here ----
+# closest = np.array([...])   # shape (N,3)
+# distance = np.array([...])  # shape (N,)
+# -------------------------
+
+
+# Scatter trace (colored by distance)
+scatter_trace = go.Scatter3d(
+    x=plasmodesmata_projected[:, 0],  # updated_vertices[len(verts) :, 0],
+    y=plasmodesmata_projected[:, 1],  # updated_vertices[len(verts) :, 1],
+    z=plasmodesmata_projected[:, 2],  # updated_vertices[len(verts) :, 2],
+    mode="markers",
+    marker=dict(
+        size=4,
+        color=densities[:],
+        colorscale="Viridis",
+        colorbar=dict(title="Density"),
+        opacity=0.8,
+    ),
+    name="samples",
+)
+
+# Mesh trace (semi-transparent)
+mesh_trace = go.Mesh3d(
+    x=shrunk_mesh.vertices[:, 2],
+    y=shrunk_mesh.vertices[:, 1],
+    z=shrunk_mesh.vertices[:, 0],
+    i=shrunk_mesh.faces[:, 0],  # first vertex index of each triangle
+    j=shrunk_mesh.faces[:, 1],  # second
+    k=shrunk_mesh.faces[:, 2],  # third
+    color="gray",
+    opacity=1.0,
+    name="cell mesh",
+)
+
+fig = go.Figure(data=[mesh_trace, scatter_trace])
+fig.update_layout(
+    title="Cell Mesh with Distance-colored Samples",
+    scene=dict(xaxis_title="X", yaxis_title="Y", zaxis_title="Z"),
+    autosize=True,
+)
+
+fig.show()
+# %%
+from sklearn_extra.cluster import KMedoids
+from sklearn.metrics import silhouette_score
+
+K_max = 100
+scores = []
+for k in range(2, K_max + 1):
+    km = KMedoids(n_clusters=k, metric="precomputed").fit(dist_matrix)
+    scores.append(silhouette_score(dist_matrix, km.labels_, metric="precomputed"))
+# %%
+# find the highest score
+# Surface mesh point insertion using trimesh for point projection
+# Updated to handle points landing on triangle edges by splitting adjacent faces
+import numpy as np
+import trimesh
+from collections import defaultdict
+from pygeodesic import geodesic
+from tqdm import tqdm
+import warnings
+
+
+def build_trimesh(vertices, faces):
+    """Build a fresh trimesh from vertex and face lists."""
+    return trimesh.Trimesh(
+        vertices=np.array(vertices), faces=np.array(faces), process=False
+    )
+
+
+def barycentric_coords(pt, v0, v1, v2):
+    """Compute barycentric coordinates for point pt in triangle v0,v1,v2."""
+    M = np.column_stack((v1 - v0, v2 - v0))
+    sol, *_ = np.linalg.lstsq(M, pt - v0, rcond=None)
+    w, v = sol
+    u = 1 - w - v
+    return u, v, w
+
+
+def _nonfinite_geodesics(vertices, faces, src_idx, tgt_indices):
+    """Return list of (target_idx, distance) for any non-finite geodesic distances."""
+    geoalg = geodesic.PyGeodesicAlgorithmExact(
+        np.asarray(vertices), np.asarray(faces, dtype=int)
+    )
+    dists, _ = geoalg.geodesicDistances([int(src_idx)], [int(t) for t in tgt_indices])
+    bad = []
+    for t, d in zip(tgt_indices, dists):
+        try:
+            df = float(d)
+        except Exception:
+            df = np.inf
+        if not np.isfinite(df):
+            bad.append((int(t), df))
+    return bad
+
+
+def insert_points_into_mesh(
+    mesh: trimesh.Trimesh,
+    new_points,
+    tol: float = 1e-8,
+    validate_each_insert: bool = False,
+    on_validation_fail: str = "raise",  # or "warn"
+):
+    """
+    Inserts new_points into the mesh surface:
+      - Projects with trimesh.nearest.on_surface
+      - Skips duplicates (within tol) and counts them per inserted vertex
+      - Splits containing triangle; splits adjacent face if point on edge
+      - Records mapped index for each input point (length == len(new_points))
+      - *Optionally* validates geodesic distances after each insertion from the new
+        vertex to all previously inserted unique vertices; if any distance is
+        inf/NaN, raises/warns immediately.
+
+    Returns:
+      updated_vertices: np.ndarray (N',3)
+      updated_faces:    np.ndarray (M',3)
+      insertion_counts: dict[new_vertex_index -> count]
+      mapped_indices:   list[int] of length len(new_points)
+    """
+    vertices = mesh.vertices.tolist()
+    faces = mesh.faces.tolist()
+    insertion_counts = defaultdict(int)
+    coord_to_index = {tuple(np.round(v, 8)): idx for idx, v in enumerate(vertices)}
+    mapped_indices = []
+    unique_inserted = []  # track unique inserted vertex indices in order
+
+    for pt in tqdm(new_points):
+        # Project onto surface
+        closest, _, face_ids = mesh.nearest.on_surface([pt])
+        proj = tuple(closest[0])
+        key = tuple(np.round(proj, 8))
+        # If already exists, reuse index
+        if key in coord_to_index:
+            idx = coord_to_index[key]
+            insertion_counts[idx] += 1
+            mapped_indices.append(idx)
+            continue
+
+        fid = int(face_ids[0])
+        i0, i1, i2 = faces[fid]
+        v0, v1, v2 = map(np.array, (vertices[i0], vertices[i1], vertices[i2]))
+        u, v, w = barycentric_coords(np.array(proj), v0, v1, v2)
+
+        # Add new vertex
+        idx = len(vertices)
+        vertices.append(proj)
+        coord_to_index[key] = idx
+        insertion_counts[idx] += 1
+        mapped_indices.append(idx)
+        unique_inserted.append(idx)
+
+        # Remove containing face
+        faces.pop(fid)
+
+        # Check if point on an edge
+        zero_idx = [i for i, c in enumerate((u, v, w)) if abs(c) < tol]
+        if zero_idx:
+            # Identify shared edge opposite the ~0 barycentric coordinate
+            ei = zero_idx[0]
+            if ei == 0:
+                edge = {i1, i2}
+            elif ei == 1:
+                edge = {i2, i0}
+            else:
+                edge = {i0, i1}
+            # Attempt to split the adjacent face along the same edge
+            adj = mesh.face_adjacency
+            adj_edges = mesh.face_adjacency_edges
+            other_fid = None
+            for j, pair in enumerate(adj):
+                if fid in pair and set(adj_edges[j]) == edge:
+                    other_fid = pair[0] if pair[1] == fid else pair[1]
+                    break
+            tris = [(i0, i1, i2)]
+            if other_fid is not None:
+                tris.append(tuple(mesh.faces[other_fid]))
+                # Remove adjacent face as well; adjust index if needed
+                faces.pop(other_fid if other_fid < fid else other_fid - 1)
+            for tri in tris:
+                a, b, c = tri
+                shared = list(edge)
+                opp = next(x for x in tri if x not in edge)
+                s0, s1 = shared
+                faces.extend([(s0, idx, opp), (idx, s1, opp)])
+        else:
+            # Strict interior: split into three
+            faces.extend([(i0, i1, idx), (i1, i2, idx), (i2, i0, idx)])
+
+        # Rebuild mesh for next steps and (optionally) validate geodesics
+        mesh = build_trimesh(vertices, faces)
+
+        if validate_each_insert and len(unique_inserted) > 1:
+            # Validate distances from the newest vertex to all prior unique insertions
+            prev = unique_inserted[:-1]
+            bad = _nonfinite_geodesics(vertices, faces, idx, prev)
+            if bad:
+                msg = (
+                    f"Non-finite geodesic distances after inserting vertex {idx} at {proj}. "
+                    f"Problematic targets: {bad}\n"
+                    f"Hint: this often indicates a disconnected surface, inverted/degenerate faces, "
+                    f"or a bad edge split."
+                )
+                if on_validation_fail == "raise":
+                    raise RuntimeError(msg)
+                else:
+                    warnings.warn(msg)
+
+    updated_vertices = np.array(vertices)
+    updated_faces = np.array(faces, dtype=int)
+    return updated_vertices, updated_faces, dict(insertion_counts), mapped_indices
+
+
+# Example usage
+if __name__ == "__main__":
+    verts = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]])
+    faces = np.array([[0, 1, 2]])
+    mesh = trimesh.Trimesh(vertices=verts, faces=faces, process=False)
+    mesh.export("example_mesh.ply")
+    updated_vertices, updated_faces, insertion_counts, mapped_indices = (
+        insert_points_into_mesh(
+            cell_mesh,
+            cell_plasmodesmata_coords,
+            validate_each_insert=True,
+            on_validation_fail="warn",
+        )
+    )
+    # updated_vertices, updated_faces, insertion_counts, mapped_indices = (
+    #     insert_points_into_mesh(
+    #         mesh, np.array([[0.5, 0.5, 0], [0, 0, 0], [0, 0.5, 0], [0.25, 0.25, 0]])
+    #     )
+    # )
+    # Compute geodesic distances among each original insertion
+    geoalg = geodesic.PyGeodesicAlgorithmExact(updated_vertices, updated_faces)
+    P = len(mapped_indices)
+    dist_matrix = np.zeros((P, P), dtype=float)
+    for i in tqdm(range(P), desc="Geodesic distances"):
+        src = mapped_indices[i]
+        targets = [mapped_indices[j] for j in range(i, P)]
+        dists, _ = geoalg.geodesicDistances([src], targets)
+        dist_matrix[i, i:] = dists
+        dist_matrix[i:, i] = dists
+
+    print("Pairwise geodesic distance matrix:")
+    print(dist_matrix)
+    print("Insertion counts:")
+    print(insertion_counts)
+
+    # new_pts = [(0, 0, 0), (0.5, 0.0, 0), (0.0, 0.5, 0)]  # one on edge
+    # v_out, f_out, counts = insert_points_into_mesh(mesh, new_pts)
+    # print(f"Result: {len(v_out)} vertices, {len(f_out)} faces")
+    # print(f"Insertion counts: {counts}")
+# %%
+mask = np.isinf(dist_matrix)
+x_inds, y_inds = np.where(mask)
+print(updated_vertices[x_inds[0], :], updated_vertices[y_inds[0], :])
+
+# %%
+o = build_trimesh(updated_vertices, updated_faces)
+o.fix_normals()
+o.export("updated_mesh.ply")
 # %%

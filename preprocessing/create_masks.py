@@ -10,118 +10,158 @@ from funlib.geometry import Roi, Coordinate
 from scipy.ndimage import binary_dilation, distance_transform_edt
 import numpy as np
 import pandas as pd
-from image_data_interface import ImageDataInterface
+from cellmap_analyze.util.image_data_interface import ImageDataInterface
 from scipy.ndimage import distance_transform_edt
 import fastmorph
-import cc3d 
+import cc3d
 import edt
-for dataset in ["jrc_22ak351-leaf-2lb","jrc_22ak351-leaf-3mb","jrc_22ak351-leaf-3rb"]:
-    print(f"Processing {dataset}...")
-    cell_segmentation_paths = pd.read_csv("cell_segmentation_paths.csv")
-    cell_segmentation_path = cell_segmentation_paths[
-        cell_segmentation_paths["dataset"] == dataset
-    ].iloc[0]["path"]
+from cellmap_analyze.util.zarr_util import create_multiscale_dataset_idi
+
+df = pd.read_csv("cell_segmentation_paths.csv")
+for stage, dataset, cell_path in zip(
+    df["stage"],
+    df["dataset"],
+    df["path"],
+):
+    if stage == "aubrey_corrected_filled" and dataset in [
+        "jrc_22ak351-leaf-2l",
+        "jrc_22ak351-leaf-3m",
+        "jrc_22ak351-leaf-3r",
+    ]:
+        pass
+    else:
+        continue
+    print(f"Processing {dataset},{cell_path}...")
 
     if dataset.endswith("b"):
         # the data is at 32 nm, but wasnt saved with the resolution, so will do it ourselves (except for 3mb)
-        output_voxel_size = Coordinate([32, 32, 32])
+        # output_voxel_size = Coordinate([32, 32, 32])
         raw_scale = "s3"
-        idi = ImageDataInterface(cell_segmentation_path)
-        if dataset == "jrc_22ak351-leaf-3mb":
-            total_roi = idi.roi
-        else:
-            total_roi = idi.roi * output_voxel_size
+        idi = ImageDataInterface(cell_path)
+        # previously used, but accidentally deleted so no redied with correct size
+        # if dataset == "jrc_22ak351-leaf-3mb":
+        #     total_roi = idi.roi
+        # else:
+        #     total_roi = idi.roi * output_voxel_size
+        total_roi = idi.roi
+        output_voxel_size = Coordinate([32, 32, 32])
         cells = idi.to_ndarray_ts()
     else:
-        output_voxel_size = Coordinate([256, 256, 256])
-        idi = ImageDataInterface(
-            cell_segmentation_path, output_voxel_size=output_voxel_size
-        )
-        total_roi = idi.roi
-        cells = idi.to_ndarray_ts()
-    
+        if not dataset.endswith("b"):
+            raw_scale = "s4"
+        output_voxel_size = Coordinate([128, 128, 128])
+        cells_idi = ImageDataInterface(cell_path, output_voxel_size=output_voxel_size)
+        total_roi = cells_idi.roi
+        cells = cells_idi.to_ndarray_ts()
+    print("Read cell segmentation.")
     # mask out 0 raw
-    raw = ImageDataInterface(f"/nrs/cellmap/data/{dataset}/{dataset}.zarr/recon-1/em/fibsem-uint8/{raw_scale}").to_ndarray_ts()
+    raw = ImageDataInterface(
+        f"/nrs/cellmap/data/{dataset}/{dataset}.zarr/recon-1/em/fibsem-uint8/{raw_scale}"
+    ).to_ndarray_ts()
+    print("Read raw image.")
+    cells_reshaped = False
     if raw.shape != cells.shape:
-        padded_raw = np.zeros(cells.shape, dtype=raw.dtype)
-        padded_raw[
-            : raw.shape[0], : raw.shape[1], : raw.shape[2]
-        ] = raw
-        raw = padded_raw
-    raw_background_cc = cc3d.connected_components(raw==0, connectivity=26, binary_image=True)
+        if (
+            raw.shape[0] > cells.shape[0]
+            or raw.shape[1] > cells.shape[1]
+            or raw.shape[2] > cells.shape[2]
+        ):
+            original_cells_shape = cells.shape
+            padded_cells = np.zeros(raw.shape, dtype=cells.dtype)
+            padded_cells[: cells.shape[0], : cells.shape[1], : cells.shape[2]] = cells
+            cells = padded_cells
+            cells_reshaped = True
+        else:
+            padded_raw = np.zeros(cells.shape, dtype=raw.dtype)
+            padded_raw[: raw.shape[0], : raw.shape[1], : raw.shape[2]] = raw
+            raw = padded_raw
+    raw_background_cc = cc3d.connected_components(
+        raw == 0, connectivity=26, binary_image=True
+    )
     raw_ids, raw_counts = np.unique(raw_background_cc, return_counts=True)
     raw_counts = raw_counts[raw_ids != 0]
     raw_ids = raw_ids[raw_ids != 0]
     # get id with most counts
     largest_raw_id = raw_ids[np.argmax(raw_counts)]
-    raw_background = raw_background_cc==largest_raw_id
+    raw_background = raw_background_cc == largest_raw_id
     raw_foreground = 1 - raw_background
- 
+
     max_iterations = 10
 
     # expand raw_mask by 1
     raw_background_dilated = fastmorph.dilate(raw_background, iterations=1)
     cells_signed_distance_transform = edt.sdf(cells)
-    raw_background_dilated_distance_transform = edt.edt(1-raw_background_dilated)
+    raw_background_dilated_distance_transform = edt.edt(1 - raw_background_dilated)
     cells_inside = np.abs(cells_signed_distance_transform)
-    cells_inside[cells_signed_distance_transform <0] = -1
+    cells_inside[cells_signed_distance_transform < 0] = -1
 
-    # invalid if distance to raw_background_dilated is less than distance inside cell, means its bordering black 
-    invalid_voxels = raw_background_dilated_distance_transform<=cells_inside
+    # invalid if distance to raw_background_dilated is less than distance inside cell, means its bordering black
+    invalid_voxels = raw_background_dilated_distance_transform <= cells_inside
 
     for d in range(1, max_iterations):
         print(f"  Creating mask for dilation {d}...")
-        output_ds = prepare_ds(
-            "/nrs/cellmap/ackermand/cellmap/leaf-gall/prediction_masks.zarr",
-            f"dilation_iterations_{d}_{dataset}/s0",
+        result = (
+            (np.abs(cells_signed_distance_transform) <= d)
+            & (raw_foreground)
+            & (~invalid_voxels)
+        )
+        if cells_reshaped:
+            total_roi = cells_idi.roi
+            result = result[
+                : original_cells_shape[0],
+                : original_cells_shape[1],
+                : original_cells_shape[2],
+            ]
+        output_idi = create_multiscale_dataset_idi(
+            f"/nrs/cellmap/ackermand/cellmap/leaf-gall/prediction_masks.zarr/dilation_iterations_{d}_{dataset}",
             total_roi=total_roi,
             voxel_size=output_voxel_size,
             dtype=np.uint8,
             write_size=Coordinate(np.array([64, 64, 64]) * output_voxel_size[0]),
-            delete=True,
         )
-        output_ds[total_roi] = (np.abs(cells_signed_distance_transform) <=d) & (raw_foreground) & (~invalid_voxels)
+
+        output_idi.ds.data[:] = result
 
 
-#%% get cell instances
-from image_data_interface import ImageDataInterface
-from postprocessing.zarr_util import create_multiscale_dataset
-import pandas as pd
-import cc3d
-from funlib.geometry import Coordinate
-import numpy as np
+# %% get cell instances
+# from image_data_interface import ImageDataInterface
+# from postprocessing.zarr_util import create_multiscale_dataset
+# import pandas as pd
+# import cc3d
+# from funlib.geometry import Coordinate
+# import numpy as np
 
-voxel_size_dict = {
-    "jrc_22ak351-leaf-3m": 512,
-    "jrc_22ak351-leaf-2l": 256,
-    "jrc_22ak351-leaf-3r": 128,
-}
-cell_segmentation_paths = pd.read_csv("cell_segmentation_paths.csv")
-for dataset in ["jrc_22ak351-leaf-3m", "jrc_22ak351-leaf-3r", "jrc_22ak351-leaf-2l"]:
-    cell_value = 1 if dataset.endswith("3m") else 60
-    cell_segmentation_path = cell_segmentation_paths[
-        cell_segmentation_paths["dataset"] == dataset
-    ].iloc[0]["path"]
-    idi = ImageDataInterface(cell_segmentation_path)
-    cells = idi.to_ndarray_ts()
-    connected_components = cc3d.connected_components(
-        cells == cell_value, connectivity=6, binary_image=True
-    )
-    connected_components = connected_components.astype(
-        np.min_scalar_type(connected_components.max())
-    )
-    # for d in range(1, 10):
-    #     inclusive_mask_dilated = binary_dilation(inclusive_mask, iterations=d)
-    voxel_size = voxel_size_dict[dataset]
-    roi = idi.roi * voxel_size / idi.voxel_size
-    output_ds = create_multiscale_dataset(
-        output_path=f"/nrs/cellmap/ackermand/cellmap/leaf-gall/{dataset}.zarr/cell",
-        dtype=connected_components.dtype,
-        voxel_size=3 * [voxel_size],
-        total_roi=idi.roi * voxel_size / idi.voxel_size,
-        write_size=Coordinate(np.array([64, 64, 64]) * voxel_size),
-    )
-    output_ds[roi] = connected_components
+# voxel_size_dict = {
+#     "jrc_22ak351-leaf-3m": 512,
+#     "jrc_22ak351-leaf-2l": 256,
+#     "jrc_22ak351-leaf-3r": 128,
+# }
+# cell_segmentation_paths = pd.read_csv("cell_segmentation_paths.csv")
+# for dataset in ["jrc_22ak351-leaf-3m", "jrc_22ak351-leaf-3r", "jrc_22ak351-leaf-2l"]:
+#     cell_value = 1 if dataset.endswith("3m") else 60
+#     cell_segmentation_path = cell_segmentation_paths[
+#         cell_segmentation_paths["dataset"] == dataset
+#     ].iloc[0]["path"]
+#     idi = ImageDataInterface(cell_segmentation_path)
+#     cells = idi.to_ndarray_ts()
+#     connected_components = cc3d.connected_components(
+#         cells == cell_value, connectivity=6, binary_image=True
+#     )
+#     connected_components = connected_components.astype(
+#         np.min_scalar_type(connected_components.max())
+#     )
+#     # for d in range(1, 10):
+#     #     inclusive_mask_dilated = binary_dilation(inclusive_mask, iterations=d)
+#     voxel_size = voxel_size_dict[dataset]
+#     roi = idi.roi * voxel_size / idi.voxel_size
+#     output_ds = create_multiscale_dataset(
+#         output_path=f"/nrs/cellmap/ackermand/cellmap/leaf-gall/{dataset}.zarr/cell",
+#         dtype=connected_components.dtype,
+#         voxel_size=3 * [voxel_size],
+#         total_roi=idi.roi * voxel_size / idi.voxel_size,
+#         write_size=Coordinate(np.array([64, 64, 64]) * voxel_size),
+#     )
+#     output_ds[roi] = connected_components
 
 # %%
 # import fastmorph
@@ -228,3 +268,12 @@ for dataset in ["jrc_22ak351-leaf-3m", "jrc_22ak351-leaf-3r", "jrc_22ak351-leaf-
 # plt.imshow(im1)
 
 # # %%
+# %%
+# open a zarr dataset
+from zarr import open as zarr_open
+
+ds = zarr_open(
+    "/groups/cellmap/cellmap/parkg/for Aubrey/2lb_s3.zarr",
+    mode="r",
+)
+# %%

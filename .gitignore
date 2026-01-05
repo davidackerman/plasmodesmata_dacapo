@@ -1,3 +1,4 @@
+.vscode/
 analysis/configs
 **/dask-scratch-space/
 */backup*

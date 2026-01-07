@@ -2,6 +2,12 @@
 import pickle
 from sklearn_extra.cluster import KMedoids
 from sklearn.metrics import silhouette_score
+import os
+
+figures_dir = "measurement_results/clustering/figures"
+data_dir = "measurement_results/clustering/data"
+os.makedirs(figures_dir, exist_ok=True)
+os.makedirs(data_dir, exist_ok=True)
 
 dataset = "jrc_22ak351-leaf-3m"
 cell_id = 102
@@ -21,7 +27,11 @@ for k in range(2, K_max + 1):
 
 import matplotlib.pyplot as plt
 
-plt.plot(scores)
+fig_scores, ax_scores = plt.subplots()
+ax_scores.plot(scores)
+fig_scores_path = os.path.join(figures_dir, "kmedoids_silhouette_scores.png")
+fig_scores.savefig(fig_scores_path, dpi=300)
+plt.close(fig_scores)
 
 
 # %%
@@ -181,12 +191,10 @@ def analyze_clusters_at_cutoffs(
     N = distance_matrix.shape[0]
 
     for radius in radii:
-        for density_thresh in density_thresholds:
-            # Count neighbors within radius for each point
-            neighbor_counts = (
-                np.sum(distance_matrix <= radius, axis=1) - 1
-            )  # subtract self
+        # Neighbor counts depend only on radius; reuse for all density thresholds.
+        neighbor_counts = np.sum(distance_matrix <= radius, axis=1) - 1  # subtract self
 
+        for density_thresh in density_thresholds:
             # Identify dense points
             dense_points = np.where(neighbor_counts >= density_thresh)[0]
 
@@ -232,17 +240,75 @@ def analyze_clusters_at_cutoffs(
 # Example with your paths
 # ---------------------------
 datasets = ["jrc_22ak351-leaf-2l", "jrc_22ak351-leaf-3r", "jrc_22ak351-leaf-3m"]
-datasets = ["jrc_22ak351-leaf-3m"]
 import matplotlib.pyplot as plt
-import os
 import glob
 from tqdm import tqdm
+from dask import delayed, compute
+from dask.diagnostics import ProgressBar
+
+# Cache mesh areas to avoid repeated trimesh loads on re-runs.
+mesh_area_cache = {}
 
 # Create figure with subplots for all statistics
 fig, axes = plt.subplots(2, 3, figsize=(18, 12))
 
 # Storage for averaged metrics per dataset
 dataset_metrics = {}
+
+use_dask = True
+
+
+def process_cell(pkl_file, r_bins, dataset):
+    cell_id = None
+    try:
+        # Extract cell_id from filename
+        cell_id = int(os.path.basename(pkl_file).split("_")[0])
+
+        # Check if corresponding mesh file exists
+        mesh_path = f"/nrs/cellmap/ackermand/new_meshes/meshes/single_resolution/leaf-gall/{dataset}/cell_fixed/meshes/{cell_id}.ply"
+        if not os.path.exists(mesh_path):
+            return None
+
+        # Load distance matrix (precomputed geodesic)
+        cell_data = pickle.load(open(pkl_file, "rb"))
+        distance_matrix = cell_data["distance_matrix"]
+
+        # Load mesh area
+        if mesh_path in mesh_area_cache:
+            A = mesh_area_cache[mesh_path]
+        else:
+            A = mesh_area_from_path(mesh_path)
+            mesh_area_cache[mesh_path] = A
+
+        # Compute RDF (auto bins up to ~1/3 geodesic diameter)
+        r, g, counts = rdf_from_distance_matrix(
+            distance_matrix, mesh_area=A, r_bins=r_bins
+        )
+
+        # Compute CDF (G)
+        r_g, G = G_function(distance_matrix, r_bins=r_bins)
+
+        # Compute Ripley's K, L, H
+        r_ripley, K, L, H = ripley_KLH(distance_matrix, A, r_bins)
+
+        # Cluster analysis at different density cutoffs
+        cluster_results = analyze_clusters_at_cutoffs(distance_matrix)
+
+        return {
+            "cell_id": cell_id,
+            "g": g,
+            "G": G,
+            "K": K,
+            "L": L,
+            "H": H,
+            "cluster_results": cluster_results,
+            "r": r,
+            "r_g": r_g,
+            "r_ripley": r_ripley,
+        }
+    except Exception as e:
+        return {"cell_id": cell_id, "error": str(e)}
+
 
 for dataset in datasets:
     print(f"Processing dataset: {dataset}")
@@ -264,57 +330,44 @@ for dataset in datasets:
 
     valid_cells = 0
 
-    for pkl_file in tqdm(pkl_files, desc=f"Processing {dataset}", leave=False):
-        try:
-            # Extract cell_id from filename
-            cell_id = int(os.path.basename(pkl_file).split("_")[0])
+    # Bin edges reused across metrics for this dataset
+    r_bins = np.linspace(0, 20000, 20000 // 500)
 
-            # Check if corresponding mesh file exists
-            mesh_path = f"/nrs/cellmap/ackermand/new_meshes/meshes/single_resolution/leaf-gall/{dataset}/cell_fixed/meshes/{cell_id}.ply"
-            if not os.path.exists(mesh_path):
-                continue
+    if use_dask:
+        tasks = [
+            delayed(process_cell)(pkl_file, r_bins, dataset) for pkl_file in pkl_files
+        ]
+        with ProgressBar():
+            results = compute(*tasks, scheduler="threads")
+    else:
+        results = []
+        for pkl_file in tqdm(pkl_files, desc=f"Processing {dataset}", leave=False):
+            results.append(process_cell(pkl_file, r_bins, dataset))
 
-            # Load distance matrix (precomputed geodesic)
-            cell_data = pickle.load(open(pkl_file, "rb"))
-            distance_matrix = cell_data["distance_matrix"]
-
-            # Load mesh area
-            A = mesh_area_from_path(mesh_path)
-
-            # Compute RDF (auto bins up to ~1/3 geodesic diameter)
-            r, g, counts = rdf_from_distance_matrix(
-                distance_matrix, mesh_area=A, r_bins=np.linspace(0, 20000, 20000 // 500)
-            )
-
-            # Compute CDF (G)
-            r_bins = np.linspace(0, 20000, 20000 // 500)
-            r_g, G = G_function(distance_matrix, r_bins=r_bins)
-
-            # Compute Ripley's K, L, H
-            r_ripley, K, L, H = ripley_KLH(distance_matrix, A, r_bins)
-
-            # Cluster analysis at different density cutoffs
-            cluster_results = analyze_clusters_at_cutoffs(distance_matrix)
-
-            # Store metrics
-            all_g.append(g)
-            all_G.append(G)
-            all_K.append(K)
-            all_L.append(L)
-            all_H.append(H)
-            all_cluster_results.append(cluster_results)
-
-            # Store r values (should be consistent across cells)
-            if all_r is None:
-                all_r = r
-                all_r_g = r_g
-                all_r_ripley = r_ripley
-
-            valid_cells += 1
-
-        except Exception as e:
-            print(f"Error processing cell {cell_id} in {dataset}: {e}")
+    for result in results:
+        if not result:
             continue
+        if "error" in result:
+            print(
+                f"Error processing cell {result['cell_id']} in {dataset}: {result['error']}"
+            )
+            continue
+
+        # Store metrics
+        all_g.append(result["g"])
+        all_G.append(result["G"])
+        all_K.append(result["K"])
+        all_L.append(result["L"])
+        all_H.append(result["H"])
+        all_cluster_results.append(result["cluster_results"])
+
+        # Store r values (should be consistent across cells)
+        if all_r is None:
+            all_r = result["r"]
+            all_r_g = result["r_g"]
+            all_r_ripley = result["r_ripley"]
+
+        valid_cells += 1
 
     if valid_cells > 0:
         print(f"Successfully processed {valid_cells} cells for {dataset}")
@@ -411,21 +464,21 @@ for dataset in datasets:
 # Finalize RDF plot
 axes[0, 0].set_xlabel("geodesic distance r")
 axes[0, 0].set_ylabel("g(r)")
-axes[0, 0].set_title(f"RDF: cell {cell_id}")
+axes[0, 0].set_title(f"RDF")
 axes[0, 0].legend()
 axes[0, 0].grid(True, alpha=0.3)
 
 # Finalize CDF plot
 axes[0, 1].set_xlabel("geodesic distance r")
 axes[0, 1].set_ylabel("G(r)")
-axes[0, 1].set_title(f"CDF (G): cell {cell_id}")
+axes[0, 1].set_title(f"CDF (G)")
 axes[0, 1].legend()
 axes[0, 1].grid(True, alpha=0.3)
 
 # Finalize Ripley's K plot
 axes[0, 2].set_xlabel("geodesic distance r")
 axes[0, 2].set_ylabel("K(r)")
-axes[0, 2].set_title(f"Ripley's K: cell {cell_id}")
+axes[0, 2].set_title(f"Ripley's K")
 axes[0, 2].set_xscale("log")  # Set x-axis to logarithmic scale base 2
 axes[0, 2].set_yscale("log")  # Set y-axis to logarithmic scale base 2
 axes[0, 2].legend()
@@ -439,7 +492,7 @@ axes[0, 2].plot(r_ref, k_random, "k--", alpha=0.5, label="Random (K=πr²)")
 # Finalize Ripley's L plot
 axes[1, 0].set_xlabel("geodesic distance r")
 axes[1, 0].set_ylabel("L(r)")
-axes[1, 0].set_title(f"Ripley's L: cell {cell_id}")
+axes[1, 0].set_title(f"Ripley's L")
 axes[1, 0].legend()
 axes[1, 0].grid(True, alpha=0.3)
 # Add reference line y=x for random distribution
@@ -449,7 +502,7 @@ axes[1, 0].plot(x_lim, x_lim, "k--", alpha=0.5, label="Random (L=r)")
 # Finalize Ripley's H plot
 axes[1, 1].set_xlabel("geodesic distance r")
 axes[1, 1].set_ylabel("H(r)")
-axes[1, 1].set_title(f"Ripley's H: cell {cell_id}")
+axes[1, 1].set_title(f"Ripley's H")
 axes[1, 1].legend()
 axes[1, 1].grid(True, alpha=0.3)
 axes[1, 1].axhline(
@@ -460,7 +513,9 @@ axes[1, 1].axhline(
 axes[1, 2].axis("off")
 
 plt.tight_layout()
-plt.show()
+fig_path = os.path.join(figures_dir, "measure_clustering_summary.png")
+plt.savefig(fig_path, dpi=300)
+plt.close(fig)
 
 # Print cluster analysis summary
 print("\n" + "=" * 80)
@@ -469,8 +524,11 @@ print("=" * 80)
 
 for dataset in datasets:
     if dataset in dataset_metrics and "cluster_analysis" in dataset_metrics[dataset]:
+        summary_lines = []
         print(f"\n{dataset.upper()}:")
+        summary_lines.append(f"{dataset.upper()}:")
         print("-" * 50)
+        summary_lines.append("-" * 50)
 
         cluster_data = dataset_metrics[dataset]["cluster_analysis"]
 
@@ -481,28 +539,36 @@ for dataset in datasets:
         print(
             f"{'Radius':<8} {'DensThresh':<12} {'AvgClusters':<12} {'StdClusters':<12} {'AvgClusterSize':<15} {'FracDense':<10}"
         )
+        summary_lines.append(
+            f"{'Radius':<8} {'DensThresh':<12} {'AvgClusters':<12} {'StdClusters':<12} {'AvgClusterSize':<15} {'FracDense':<10}"
+        )
         print("-" * 80)
+        summary_lines.append("-" * 80)
 
         for radius in radii:
             for density_thresh in density_thresholds:
                 key = (radius, density_thresh)
                 if key in cluster_data:
                     data = cluster_data[key]
-                    print(
+                    line = (
                         f"{radius:<8} {density_thresh:<12} {data['avg_n_clusters']:<12.2f} "
                         f"{data['std_n_clusters']:<12.2f} {data['avg_cluster_size']:<15.2f} "
                         f"{data['avg_fraction_dense']:<10.3f}"
                     )
+                    print(line)
+                    summary_lines.append(line)
 
         # Summary statistics
         print(f"\nSummary for {dataset}:")
+        summary_lines.append("")
+        summary_lines.append(f"Summary for {dataset}:")
         max_clusters_key = max(
             cluster_data.keys(), key=lambda k: cluster_data[k]["avg_n_clusters"]
         )
         max_clusters_data = cluster_data[max_clusters_key]
-        print(
-            f"  Max avg clusters: {max_clusters_data['avg_n_clusters']:.2f} at radius={max_clusters_key[0]}, density_thresh={max_clusters_key[1]}"
-        )
+        line = f"  Max avg clusters: {max_clusters_data['avg_n_clusters']:.2f} at radius={max_clusters_key[0]}, density_thresh={max_clusters_key[1]}"
+        print(line)
+        summary_lines.append(line)
 
         # Find optimal clustering parameters (high cluster count, reasonable cluster size)
         optimal_configs = [
@@ -514,10 +580,20 @@ for dataset in datasets:
             optimal_key, optimal_data = max(
                 optimal_configs, key=lambda x: x[1]["avg_n_clusters"]
             )
-            print(
+            line = (
                 f"  Optimal config: radius={optimal_key[0]}, density_thresh={optimal_key[1]} "
                 f"-> {optimal_data['avg_n_clusters']:.2f} clusters, {optimal_data['avg_cluster_size']:.2f} avg size"
             )
+            print(line)
+            summary_lines.append(line)
+
+        summary_path = os.path.join(data_dir, f"{dataset}_summary.txt")
+        with open(summary_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(summary_lines))
+    else:
+        summary_path = os.path.join(data_dir, f"{dataset}_summary.txt")
+        with open(summary_path, "w", encoding="utf-8") as f:
+            f.write(f"{dataset.upper()}: No cluster analysis data available.")
 
 print("\n" + "=" * 80)
 
@@ -707,7 +783,9 @@ if radii_sorted and density_thresholds_sorted:
             )
 
     plt.tight_layout()
-    plt.show()
+    heatmap_path = os.path.join(figures_dir, "cluster_analysis_heatmaps.png")
+    plt.savefig(heatmap_path, dpi=300)
+    plt.close(fig_heatmaps)
 
     print("Heatmaps created successfully!")
 else:

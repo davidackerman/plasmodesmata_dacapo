@@ -25,6 +25,14 @@ except Exception:  # pragma: no cover
 
     _HAS_TRIANGLE = False
 
+# ---------------------------- exceptions ------------------------------
+
+
+class MeshValidationError(Exception):
+    """Raised when mesh validation fails after point insertion or manipulation."""
+    pass
+
+
 # ---------------------------- helpers ---------------------------------
 
 
@@ -146,7 +154,15 @@ def insert_points_into_mesh_batch(
         A, ex, ey = A_all[fid], ex_all[fid], ey_all[fid]
         i0, i1, i2 = F[fid]
         A3, B3, C3 = np.asarray(V[i0]), np.asarray(V[i1]), np.asarray(V[i2])
-        u, v, w = barycentric_in_face(P, A3, B3, C3) or (1 / 3, 1 / 3, 1 / 3)
+        bary = barycentric_in_face(P, A3, B3, C3)
+        if bary is None:
+            raise MeshValidationError(
+                f"Cannot compute barycentric coordinates for point {p_i} in face {fid}. "
+                f"Face vertices: {F[fid]} at positions {A3}, {B3}, {C3}. "
+                f"This indicates a degenerate triangle (zero area or collinear vertices). "
+                f"Check mesh quality before point insertion."
+            )
+        u, v, w = bary
 
         # Vertex snap
         if u > 1 - tol:
@@ -366,12 +382,50 @@ def insert_points_into_mesh_batch(
     V = np.asarray(V)
     F_new = np.asarray(new_faces, dtype=int)
 
-    # Optional basic validity checks
-    if validate:
-        # Check that all faces reference valid vertex indices
-        assert F_new.min() >= 0 and F_new.max() < len(V)
-        # Ensure connectivity not broken (at least one component)
-        assert len(F_new) > 0
+    # ALWAYS validate (not just when validate=True) - reliability over speed
+    updated_mesh = build_trimesh(V, F_new)
+
+    # Basic index validity
+    if F_new.min() < 0 or F_new.max() >= len(V):
+        raise MeshValidationError(
+            f"Invalid vertex indices: min={F_new.min()}, max={F_new.max()}, num_verts={len(V)}"
+        )
+
+    if len(F_new) == 0:
+        raise MeshValidationError("No faces in mesh after insertion")
+
+    # Topology checks - RAISE exceptions instead of warnings
+    if not updated_mesh.is_watertight:
+        raise MeshValidationError(
+            "Mesh is not watertight after point insertion. "
+            "This will cause geodesic distance computation to fail."
+        )
+
+    if not updated_mesh.is_winding_consistent:
+        raise MeshValidationError("Mesh has inconsistent face windings after insertion")
+
+    # Check for unreferenced vertices (indicates bug in insertion algorithm)
+    used_verts = np.unique(F_new)
+    if len(used_verts) < len(V):
+        num_unreferenced = len(V) - len(used_verts)
+        num_added = len(V) - nV0  # nV0 is original vertex count from line 119
+        raise MeshValidationError(
+            f"{num_unreferenced} unreferenced vertices after insertion "
+            f"(created {num_added} new vertices)"
+        )
+
+    # Check mesh is connected (single component)
+    if updated_mesh.body_count > 1:
+        raise MeshValidationError(
+            f"Mesh has {updated_mesh.body_count} disconnected components after insertion. "
+            "Geodesic distances will be infinite between components."
+        )
+
+    # Log successful validation
+    logger.debug(
+        f"Mesh validation passed: {len(V)} vertices, {len(F_new)} faces, "
+        f"watertight={updated_mesh.is_watertight}, components={updated_mesh.body_count}"
+    )
 
     return V, F_new, dict(insertion_counts), mapped_indices
 
@@ -391,6 +445,7 @@ import numpy as np
 import pandas as pd
 import dask.dataframe as dd
 from tqdm import tqdm
+import psutil
 
 
 logger = logging.getLogger(__name__)
@@ -438,19 +493,279 @@ class RunProperties:
 # ------------------------- geodesic utilities -------------------------
 
 
-def compute_pairwise_geodesic_for_inputs(
-    updated_vertices, updated_faces, mapped_indices
-):
-    """Return P x P geodesic matrix for the P original input points, using mapped_indices."""
+def clean_mesh_for_geodesic(vertices, faces, min_area=1e-10):
+    """
+    Clean a mesh to improve geodesic computation reliability by removing degenerate faces.
+
+    Args:
+        vertices: Nx3 array of vertex positions
+        faces: Mx3 array of face indices
+        min_area: Minimum face area threshold
+
+    Returns:
+        tuple: (cleaned_vertices, cleaned_faces, num_removed)
+    """
+    mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+
+    # Remove degenerate faces (very small or zero area)
+    face_areas = mesh.area_faces
+    valid_faces_mask = face_areas >= min_area
+    num_removed = np.sum(~valid_faces_mask)
+
+    if num_removed > 0:
+        logger.warning(f"Removing {num_removed} degenerate faces with area < {min_area}")
+        mesh.update_faces(valid_faces_mask)
+
+        # After removing faces, we may have unreferenced vertices - clean them up
+        mesh.remove_unreferenced_vertices()
+
+    return mesh.vertices, mesh.faces, num_removed
+
+
+def compute_graph_distance_fallback(updated_vertices, updated_faces, mapped_indices):
+    """
+    Compute pairwise distances using graph shortest path as fallback when geodesic fails.
+
+    This is less accurate than true geodesic distance (follows edges not surface),
+    but provides a reasonable approximation when pygeodesic fails due to numerical issues.
+    """
+    try:
+        import networkx as nx
+    except ImportError:
+        raise ImportError(
+            "NetworkX is required for graph-based distance fallback. "
+            "Install with: pip install networkx"
+        )
+
+    # Build graph from mesh edges
+    mesh = trimesh.Trimesh(vertices=updated_vertices, faces=updated_faces)
+    edges = mesh.edges_unique
+
+    G = nx.Graph()
+    for edge in edges:
+        v1, v2 = edge
+        dist = np.linalg.norm(updated_vertices[v1] - updated_vertices[v2])
+        G.add_edge(int(v1), int(v2), weight=dist)
+
+    # Compute pairwise distances for mapped indices
     P = len(mapped_indices)
     D = np.zeros((P, P), dtype=float)
-    geoalg = geodesic.PyGeodesicAlgorithmExact(updated_vertices, updated_faces)
+
+    for i in tqdm(range(P), desc="Graph distances (fallback)"):
+        for j in range(i, P):
+            if i == j:
+                D[i, j] = 0
+            else:
+                src = int(mapped_indices[i])
+                tgt = int(mapped_indices[j])
+                try:
+                    dist = nx.shortest_path_length(G, src, tgt, weight='weight')
+                    D[i, j] = dist
+                    D[j, i] = dist
+                except nx.NetworkXNoPath:
+                    # Vertices are in different components - should not happen
+                    D[i, j] = np.inf
+                    D[j, i] = np.inf
+
+    return D
+
+
+def compute_pairwise_geodesic_for_inputs(
+    updated_vertices, updated_faces, mapped_indices, cell_id="unknown", use_fallback=False
+):
+    """
+    Return P x P geodesic matrix for the P original input points, using mapped_indices.
+
+    Includes robustness improvements:
+    - Cleans degenerate faces before geodesic computation
+    - Provides detailed diagnostics on failure
+    - Falls back to graph-based distances if pygeodesic fails
+    - Includes cell_id in error messages for easier debugging
+
+    Args:
+        updated_vertices: Nx3 array of vertex positions
+        updated_faces: Mx3 array of face indices
+        mapped_indices: P-length array mapping plasmodesmata to vertex indices
+        cell_id: Identifier for logging/errors
+        use_fallback: If True, use graph distances when geodesic fails (default: True)
+    """
+    P = len(mapped_indices)
+
+    # Clean the mesh to remove degenerate faces that can cause geodesic failures
+    cleaned_vertices, cleaned_faces, num_removed = clean_mesh_for_geodesic(
+        updated_vertices, updated_faces
+    )
+
+    if num_removed > 0:
+        logger.info(
+            f"Cell {cell_id}: Removed {num_removed} degenerate faces before geodesic computation"
+        )
+        # Update mapped_indices if vertices were reindexed
+        if len(cleaned_vertices) != len(updated_vertices):
+            logger.warning(
+                f"Cell {cell_id}: Vertex count changed from {len(updated_vertices)} to {len(cleaned_vertices)} "
+                f"after cleaning. This may indicate problematic mesh geometry."
+            )
+            # Trimesh.remove_unreferenced_vertices() can change vertex indices
+            # We need to remap the mapped_indices
+            # For now, raise an error if this happens
+            raise ValueError(
+                f"Cell {cell_id}: Mesh cleaning changed vertex count, which would invalidate mapped_indices. "
+                f"This indicates severe mesh quality issues."
+            )
+
+        updated_vertices = cleaned_vertices
+        updated_faces = cleaned_faces
+
+    # Initialize geodesic algorithm
+    try:
+        geoalg = geodesic.PyGeodesicAlgorithmExact(updated_vertices, updated_faces)
+    except Exception as e:
+        raise ValueError(
+            f"Cell {cell_id}: Failed to initialize pygeodesic algorithm: {e}\n"
+            f"Mesh: {len(updated_vertices)} vertices, {len(updated_faces)} faces"
+        )
+
+    # Compute distances and collect any failures
+    D = np.zeros((P, P), dtype=float)
+    failed_pairs = []
+    reverse_fixed_count = 0
+
     for i in tqdm(range(P), desc="Geodesic distances"):
         src = mapped_indices[i]
         t_subset = mapped_indices[i:]
-        dists, _ = geoalg.geodesicDistances([src], t_subset)
+
+        try:
+            dists, _ = geoalg.geodesicDistances([src], t_subset)
+        except Exception as e:
+            raise ValueError(
+                f"Cell {cell_id}: Geodesic computation crashed at source vertex {src} "
+                f"(plasmodesmata index {i}): {e}"
+            )
+
+        # Check for invalid distances
+        invalid_mask = ~np.isfinite(dists)
+        if np.any(invalid_mask):
+            invalid_indices = np.where(invalid_mask)[0]
+
+            # Try reverse direction for failed pairs
+            for inv_idx in invalid_indices:
+                tgt = t_subset[inv_idx]
+                tgt_pd_idx = i + inv_idx
+
+                # Try computing distance in reverse direction
+                try:
+                    reverse_dist, _ = geoalg.geodesicDistances([tgt], [src])
+                    if np.isfinite(reverse_dist[0]):
+                        # Reverse direction worked! Use that distance
+                        dists[inv_idx] = reverse_dist[0]
+                        reverse_fixed_count += 1
+                        logger.warning(
+                            f"Cell {cell_id}: Asymmetric geodesic - "
+                            f"PD {i} (v{src}) -> PD {tgt_pd_idx} (v{tgt}) = inf, "
+                            f"but reverse = {reverse_dist[0]:.2f} nm. Using reverse. "
+                            f"This is a pygeodesic bug."
+                        )
+                    else:
+                        # Both directions failed
+                        failed_pairs.append((src, tgt, i, tgt_pd_idx))
+                except Exception:
+                    # Reverse also crashed
+                    failed_pairs.append((src, tgt, i, tgt_pd_idx))
+
+        # Check for negative distances
+        if np.any(dists < 0):
+            raise ValueError(
+                f"Cell {cell_id}: Negative geodesic distances from vertex {src}: "
+                f"{dists[dists < 0]}"
+            )
+
         D[i, i:] = dists
         D[i:, i] = dists
+
+    # Report if we fixed any with reverse direction
+    if reverse_fixed_count > 0:
+        logger.warning(
+            f"Cell {cell_id}: Fixed {reverse_fixed_count} asymmetric geodesic failures "
+            f"using reverse direction."
+        )
+
+    # If we found failures, provide comprehensive diagnostics before raising
+    if failed_pairs:
+        logger.error(
+            f"Cell {cell_id}: Found {len(failed_pairs)} vertex pairs with infinite geodesic distance"
+        )
+        logger.error(f"Cell {cell_id}: First 5 failed pairs:")
+        for src_v, tgt_v, src_pd, tgt_pd in failed_pairs[:5]:
+            logger.error(
+                f"  Plasmodesmata {src_pd} (vertex {src_v}) -> "
+                f"Plasmodesmata {tgt_pd} (vertex {tgt_v}): inf"
+            )
+
+        # Check mesh connectivity to diagnose the issue
+        mesh = trimesh.Trimesh(vertices=updated_vertices, faces=updated_faces)
+        components = mesh.split(only_watertight=False)
+
+        if len(components) > 1:
+            logger.error(
+                f"Cell {cell_id}: DISCONNECTED MESH - {len(components)} components detected!"
+            )
+            for i, comp in enumerate(components):
+                logger.error(
+                    f"  Component {i}: {len(comp.vertices)} vertices, {len(comp.faces)} faces"
+                )
+        else:
+            logger.error(
+                f"Cell {cell_id}: Mesh appears connected (1 component), but geodesic still failing."
+            )
+            logger.error(
+                f"  This suggests numerical precision issues or degenerate geometry."
+            )
+            logger.error(
+                f"  Possible causes: very thin triangles, nearly co-planar faces, "
+                f"or precision limits of the geodesic algorithm."
+            )
+
+        # If fallback is enabled, use graph-based distances instead
+        if use_fallback:
+            logger.warning(
+                f"Cell {cell_id}: Pygeodesic failed for {len(failed_pairs)} pairs. "
+                f"Falling back to graph-based shortest path distances."
+            )
+            logger.warning(
+                f"Cell {cell_id}: Note - graph distances follow mesh edges, not true surface geodesics. "
+                f"This is less accurate but provides a reasonable approximation."
+            )
+
+            try:
+                D = compute_graph_distance_fallback(updated_vertices, updated_faces, mapped_indices)
+                logger.info(
+                    f"Cell {cell_id}: Successfully computed distances using graph fallback."
+                )
+                # Continue with validation below
+            except Exception as fallback_error:
+                raise ValueError(
+                    f"Cell {cell_id}: Both geodesic and graph fallback failed. "
+                    f"Geodesic: {len(failed_pairs)} infinite distances. "
+                    f"Graph fallback error: {fallback_error}"
+                )
+        else:
+            raise ValueError(
+                f"Cell {cell_id}: Invalid geodesic distances computed for {len(failed_pairs)} pairs. "
+                f"First failure: vertex {failed_pairs[0][0]} -> {failed_pairs[0][1]}. "
+                f"See detailed diagnostics in logs above. "
+                f"Set use_fallback=True to use graph-based distances instead."
+            )
+
+    # Final validation
+    if not np.allclose(D, D.T, rtol=1e-5):
+        raise ValueError(f"Cell {cell_id}: Distance matrix is not symmetric")
+
+    if not np.allclose(np.diag(D), 0, atol=1e-6):
+        raise ValueError(
+            f"Cell {cell_id}: Distance matrix diagonal is not zero: {np.diag(D)}"
+        )
+
     return D
 
 
@@ -461,27 +776,81 @@ def measure_distribution_for_cell(
     Measure the distribution of plasmodesmata coordinates within a cell by first inserting them into the mesh.
     Then use pygeodesic to compute distances.
     """
+    cell_id = os.path.basename(cell_mesh_path).split(".")[0]
+
+    # Memory monitoring setup
+    process = psutil.Process()
+    mem_start = process.memory_info().rss / (1024 * 1024)  # MB
+
+    # Preemptive memory bounds check
+    MAX_MATRIX_SIZE_MB = 1000  # Can be adjusted based on available worker memory
+    P = len(cell_plasmodesmata_coords)
+    estimated_mb = (P * P * 8) / (1024 * 1024)  # float64 distance matrix
+
+    logger.info(
+        f"Cell {cell_id}: Processing {P} plasmodesmata, "
+        f"estimated distance matrix: {estimated_mb:.1f}MB"
+    )
+
+    if estimated_mb > MAX_MATRIX_SIZE_MB:
+        raise MemoryError(
+            f"Cell {cell_id} requires {estimated_mb:.1f}MB for distance matrix "
+            f"({P}×{P} points), exceeds limit of {MAX_MATRIX_SIZE_MB}MB. "
+            f"This cell is too large to process with current memory constraints. "
+            f"Consider: (1) increasing worker memory, (2) filtering plasmodesmata, "
+            f"or (3) implementing sparse distance computation."
+        )
+
+    # Load mesh and process
     cell_mesh = trimesh.load(cell_mesh_path)
     updated_vertices, updated_faces, insertion_counts, mapped_indices = (
         insert_points_into_mesh_batch(cell_mesh, cell_plasmodesmata_coords)
     )
     dist_matrix = compute_pairwise_geodesic_for_inputs(
-        updated_vertices, updated_faces, mapped_indices
+        updated_vertices, updated_faces, mapped_indices, cell_id=cell_id
     )
-    cell_id = os.path.basename(cell_mesh_path).split(".")[0]
-    # output_file = os.path.join(output_path, f"{cell_id}_distances.npy")
-    # write out to pkl file
+
+    # Log peak memory usage
+    mem_peak = process.memory_info().rss / (1024 * 1024)
+    logger.info(
+        f"Cell {cell_id}: Peak memory usage: {mem_peak:.1f}MB "
+        f"(delta: {mem_peak - mem_start:.1f}MB)"
+    )
 
     data = {
+        # Existing fields
         "updated_vertices": updated_vertices,
         "updated_faces": updated_faces,
         "insertion_counts": insertion_counts,
         "plasmodesmata_indices": mapped_indices,
         "distance_matrix": dist_matrix,
+
+        # NEW: Validation and diagnostic info
+        "validation_metrics": {
+            "num_plasmodesmata": len(mapped_indices),
+            "num_vertices_original": len(cell_mesh.vertices),
+            "num_vertices_final": len(updated_vertices),
+            "num_vertices_added": len(updated_vertices) - len(cell_mesh.vertices),
+            "num_faces_original": len(cell_mesh.faces),
+            "num_faces_final": len(updated_faces),
+            "is_watertight": True,  # Validated during mesh validation
+            "is_winding_consistent": True,  # Validated during mesh validation
+            "num_components": 1,  # Validated during mesh validation
+            "distance_matrix_shape": dist_matrix.shape,
+            "distance_matrix_memory_mb": (dist_matrix.nbytes / (1024 * 1024)),
+            "max_geodesic_distance": float(dist_matrix.max()),
+            "mean_geodesic_distance": float(dist_matrix.mean()),
+        },
+
+        # NEW: Processing metadata
+        "processing_info": {
+            "cell_id": cell_id,
+            "cell_mesh_path": cell_mesh_path,
+            "processing_status": "success",
+            "timestamp": pd.Timestamp.now().isoformat(),
+        },
     }
 
-    # derive cell ID and output path
-    cell_id = os.path.basename(cell_mesh_path).split(".")[0]
     output_file = os.path.join(output_path, f"{cell_id}_distribution.pkl")
 
     # write to pickle
@@ -539,15 +908,15 @@ def process_cell_row(row, cell_meshes_path, output_path):
         return cell_id
 
     try:
-
         measure_distribution_for_cell(
             cell_plasmodesmata_coords, cell_mesh_path, output_path
         )
         logger.info(f"Successfully processed cell {cell_id}")
         return cell_id
     except Exception as e:
-        logger.error(f"Error processing cell {cell_id}: {str(e)}")
-        return cell_id
+        # Log error with context, then ALWAYS re-raise
+        logger.error(f"Error processing cell {cell_id}: {str(e)}", exc_info=True)
+        raise  # CRITICAL: Re-raise to stop processing immediately
 
 
 def process_partition(partition_df, cell_meshes_path, output_path):

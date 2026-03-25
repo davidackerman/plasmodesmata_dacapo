@@ -1,9 +1,19 @@
+neuroglancer_annotations*/
+analysis/measurement_results/
+analysis/figures/
+analysis/weighted_graph_results/
+*.ply
+*.png
+*dask_config-*
+analysis/dask_configs/remesh_and_measure_dask/*2026*/
 .vscode/
 analysis/configs
 **/dask-scratch-space/
 */backup*
 logs/
 daisy_logs/
+preprocessing/temp.zarr/
+preprocessing/tmp_proofreading_jsons/
 
 # presentation
 for_presentation/frames*/

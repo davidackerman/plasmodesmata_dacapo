@@ -7,3 +7,4 @@ trimesh>=3.15.0
 pygeodesic
 tqdm>=4.64.0
 fastremap
+cellmap-analyze

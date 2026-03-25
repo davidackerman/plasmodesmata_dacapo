@@ -960,7 +960,7 @@ scatter_trace = go.Scatter3d(
         size=4,
         color=densities[:],
         colorscale="Viridis",
-        colorbar=dict(title="Density"),
+        colorbar=dict(title="Geodesic Distance (nm)"),
         opacity=0.8,
     ),
     name="samples",

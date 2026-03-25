@@ -508,7 +508,7 @@ def example_real():
     ].to_numpy()
 
     # read in mesh
-    cell_mesh_file = f"/nrs/cellmap/ackermand/new_meshes/meshes/single_resolution/leaf-gall/jrc_22ak351-leaf-3m/cell/meshes/{cell_id}.ply"
+    cell_mesh_file = f"/nrs/cellmap/ackermand/new_meshes/meshes/single_resolution/leaf-gall/jrc_22ak351-leaf-3m/cell_fixed/meshes/{cell_id}.ply"
     cell_mesh = trimesh.load_mesh(cell_mesh_file)
     cell_mesh.vertices = cell_mesh.vertices  # %%
     updated_vertices, updated_faces, insertion_counts, mapped_indices = (
@@ -595,12 +595,12 @@ def compute_density(dist_matrix: np.ndarray, radius: float) -> np.ndarray:
 dataset = "jrc_22ak351-leaf-3m"
 cell_id = 100
 cell_mesh = trimesh.load_mesh(
-    f"/nrs/cellmap/ackermand/new_meshes/meshes/single_resolution/leaf-gall/jrc_22ak351-leaf-3m/cell/meshes/{cell_id}.ply"
+    f"/nrs/cellmap/ackermand/new_meshes/meshes/single_resolution/leaf-gall/jrc_22ak351-leaf-3m/cell_fixed/meshes/{cell_id}.ply"
 )
 
 paths = [
     f"/nrs/cellmap/ackermand/cellmap/analysisResults/leaf-gall/jrc_22ak351-leaf-3m/geodesic_distances/100_distribution.pkl",
-    "/nrs/cellmap/ackermand/to_delete/20250811/3m/100_distribution.pkl",
+    # "/nrs/cellmap/ackermand/to_delete/20250811/3m/100_distribution.pkl",
 ]
 for i, path in enumerate(paths):
     with open(path, "rb") as f:
@@ -614,7 +614,7 @@ for i, path in enumerate(paths):
     plasmodesmata_projected = data["updated_vertices"][plasmodesmata_indices, :]
     dist_matrix = data["distance_matrix"]
     shrunk_mesh = get_shrunk_mesh(
-        f"/nrs/cellmap/ackermand/new_meshes/meshes/single_resolution/leaf-gall/{dataset}/cell/meshes/{cell_id}.ply",
+        f"/nrs/cellmap/ackermand/new_meshes/meshes/single_resolution/leaf-gall/jrc_22ak351-leaf-3m/cell_fixed/meshes/{cell_id}.ply",
         factor=0.5,
     )
     if i == 1:
@@ -644,9 +644,9 @@ for i, path in enumerate(paths):
         mode="markers",
         marker=dict(
             size=4,
-            color=densities[:],#dist_matrix[500, :],  # densities[:],
+            color=dist_matrix[1000, :],  # densities[:],
             colorscale="Viridis",
-            colorbar=dict(title="Density"),#"Density"),
+            colorbar=dict(title="Geodesic Distance (nm)"),  # "Density"),
             opacity=0.8,
         ),
         name="samples",

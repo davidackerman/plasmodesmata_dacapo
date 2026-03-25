@@ -1,0 +1,11 @@
+jobqueue:
+  local:
+    ncpus: 1
+    processes: 1
+    cores: 1
+    log-directory: job-logs
+    name: dask-worker
+
+distributed:
+  scheduler:
+    work-stealing: true

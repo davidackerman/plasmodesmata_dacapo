@@ -310,486 +310,487 @@ def process_cell(pkl_file, r_bins, dataset):
         return {"cell_id": cell_id, "error": str(e)}
 
 
-for dataset in datasets:
-    print(f"Processing dataset: {dataset}")
+if __name__ == "__main__":
+    for dataset in datasets:
+        print(f"Processing dataset: {dataset}")
 
-    # Find all pkl files for this dataset
-    pkl_pattern = f"/nrs/cellmap/ackermand/cellmap/analysisResults/leaf-gall/{dataset}/geodesic_distances/*_distribution.pkl"
-    pkl_files = glob.glob(pkl_pattern)
+        # Find all pkl files for this dataset
+        pkl_pattern = f"/nrs/cellmap/ackermand/cellmap/analysisResults/leaf-gall/{dataset}/geodesic_distances/*_distribution.pkl"
+        pkl_files = glob.glob(pkl_pattern)
 
-    # Storage for this dataset's metrics
-    all_g = []
-    all_G = []
-    all_K = []
-    all_L = []
-    all_H = []
-    all_cluster_results = []
-    all_r = None
-    all_r_g = None
-    all_r_ripley = None
+        # Storage for this dataset's metrics
+        all_g = []
+        all_G = []
+        all_K = []
+        all_L = []
+        all_H = []
+        all_cluster_results = []
+        all_r = None
+        all_r_g = None
+        all_r_ripley = None
 
-    valid_cells = 0
+        valid_cells = 0
 
-    # Bin edges reused across metrics for this dataset
-    r_bins = np.linspace(0, 20000, 20000 // 500)
+        # Bin edges reused across metrics for this dataset
+        r_bins = np.linspace(0, 20000, 20000 // 500)
 
-    if use_dask:
-        tasks = [
-            delayed(process_cell)(pkl_file, r_bins, dataset) for pkl_file in pkl_files
-        ]
-        with ProgressBar():
-            results = compute(*tasks, scheduler="threads")
-    else:
-        results = []
-        for pkl_file in tqdm(pkl_files, desc=f"Processing {dataset}", leave=False):
-            results.append(process_cell(pkl_file, r_bins, dataset))
+        if use_dask:
+            tasks = [
+                delayed(process_cell)(pkl_file, r_bins, dataset) for pkl_file in pkl_files
+            ]
+            with ProgressBar():
+                results = compute(*tasks, scheduler="threads")
+        else:
+            results = []
+            for pkl_file in tqdm(pkl_files, desc=f"Processing {dataset}", leave=False):
+                results.append(process_cell(pkl_file, r_bins, dataset))
 
-    for result in results:
-        if not result:
-            continue
-        if "error" in result:
-            print(
-                f"Error processing cell {result['cell_id']} in {dataset}: {result['error']}"
-            )
-            continue
+        for result in results:
+            if not result:
+                continue
+            if "error" in result:
+                print(
+                    f"Error processing cell {result['cell_id']} in {dataset}: {result['error']}"
+                )
+                continue
 
-        # Store metrics
-        all_g.append(result["g"])
-        all_G.append(result["G"])
-        all_K.append(result["K"])
-        all_L.append(result["L"])
-        all_H.append(result["H"])
-        all_cluster_results.append(result["cluster_results"])
+            # Store metrics
+            all_g.append(result["g"])
+            all_G.append(result["G"])
+            all_K.append(result["K"])
+            all_L.append(result["L"])
+            all_H.append(result["H"])
+            all_cluster_results.append(result["cluster_results"])
 
-        # Store r values (should be consistent across cells)
-        if all_r is None:
-            all_r = result["r"]
-            all_r_g = result["r_g"]
-            all_r_ripley = result["r_ripley"]
+            # Store r values (should be consistent across cells)
+            if all_r is None:
+                all_r = result["r"]
+                all_r_g = result["r_g"]
+                all_r_ripley = result["r_ripley"]
 
-        valid_cells += 1
+            valid_cells += 1
 
-    if valid_cells > 0:
-        print(f"Successfully processed {valid_cells} cells for {dataset}")
+        if valid_cells > 0:
+            print(f"Successfully processed {valid_cells} cells for {dataset}")
 
-        # Compute averages
-        avg_g = np.mean(all_g, axis=0)
-        avg_G = np.mean(all_G, axis=0)
-        avg_K = np.mean(all_K, axis=0)
-        avg_L = np.mean(all_L, axis=0)
-        avg_H = np.mean(all_H, axis=0)
+            # Compute averages
+            avg_g = np.mean(all_g, axis=0)
+            avg_G = np.mean(all_G, axis=0)
+            avg_K = np.mean(all_K, axis=0)
+            avg_L = np.mean(all_L, axis=0)
+            avg_H = np.mean(all_H, axis=0)
 
-        # Average cluster results across all cells
-        avg_cluster_results = {}
-        if all_cluster_results:
-            # Get all unique (radius, density_thresh) combinations
-            all_keys = set()
-            for cell_results in all_cluster_results:
-                all_keys.update(cell_results.keys())
-
-            # Average each metric for each combination
-            for key in all_keys:
-                n_clusters_list = []
-                cluster_sizes_list = []
-                n_dense_points_list = []
-                fraction_dense_list = []
-
+            # Average cluster results across all cells
+            avg_cluster_results = {}
+            if all_cluster_results:
+                # Get all unique (radius, density_thresh) combinations
+                all_keys = set()
                 for cell_results in all_cluster_results:
-                    if key in cell_results:
-                        n_clusters_list.append(cell_results[key]["n_clusters"])
-                        cluster_sizes_list.extend(cell_results[key]["cluster_sizes"])
-                        n_dense_points_list.append(cell_results[key]["n_dense_points"])
-                        fraction_dense_list.append(cell_results[key]["fraction_dense"])
+                    all_keys.update(cell_results.keys())
 
-                avg_cluster_results[key] = {
-                    "avg_n_clusters": (
-                        np.mean(n_clusters_list) if n_clusters_list else 0
-                    ),
-                    "std_n_clusters": np.std(n_clusters_list) if n_clusters_list else 0,
-                    "all_cluster_sizes": cluster_sizes_list,
-                    "avg_cluster_size": (
-                        np.mean(cluster_sizes_list) if cluster_sizes_list else 0
-                    ),
-                    "avg_n_dense_points": (
-                        np.mean(n_dense_points_list) if n_dense_points_list else 0
-                    ),
-                    "avg_fraction_dense": (
-                        np.mean(fraction_dense_list) if fraction_dense_list else 0
-                    ),
-                    "n_cells_contributing": len(n_clusters_list),
-                }
+                # Average each metric for each combination
+                for key in all_keys:
+                    n_clusters_list = []
+                    cluster_sizes_list = []
+                    n_dense_points_list = []
+                    fraction_dense_list = []
 
-        # Store for plotting
-        dataset_metrics[dataset] = {
-            "r": all_r,
-            "g": avg_g,
-            "r_g": all_r_g,
-            "G": avg_G,
-            "r_ripley": all_r_ripley,
-            "K": avg_K,
-            "L": avg_L,
-            "H": avg_H,
-            "cluster_analysis": avg_cluster_results,
-            "n_cells": valid_cells,
-        }
+                    for cell_results in all_cluster_results:
+                        if key in cell_results:
+                            n_clusters_list.append(cell_results[key]["n_clusters"])
+                            cluster_sizes_list.extend(cell_results[key]["cluster_sizes"])
+                            n_dense_points_list.append(cell_results[key]["n_dense_points"])
+                            fraction_dense_list.append(cell_results[key]["fraction_dense"])
 
-        # Plot averaged metrics
-        # Plot RDF
-        axes[0, 0].plot(
-            all_r, avg_g, marker="o", lw=1, label=f"{dataset} (n={valid_cells})"
-        )
+                    avg_cluster_results[key] = {
+                        "avg_n_clusters": (
+                            np.mean(n_clusters_list) if n_clusters_list else 0
+                        ),
+                        "std_n_clusters": np.std(n_clusters_list) if n_clusters_list else 0,
+                        "all_cluster_sizes": cluster_sizes_list,
+                        "avg_cluster_size": (
+                            np.mean(cluster_sizes_list) if cluster_sizes_list else 0
+                        ),
+                        "avg_n_dense_points": (
+                            np.mean(n_dense_points_list) if n_dense_points_list else 0
+                        ),
+                        "avg_fraction_dense": (
+                            np.mean(fraction_dense_list) if fraction_dense_list else 0
+                        ),
+                        "n_cells_contributing": len(n_clusters_list),
+                    }
 
-        # Plot CDF (G)
-        axes[0, 1].plot(
-            all_r_g, avg_G, marker="o", lw=1, label=f"{dataset} (n={valid_cells})"
-        )
+            # Store for plotting
+            dataset_metrics[dataset] = {
+                "r": all_r,
+                "g": avg_g,
+                "r_g": all_r_g,
+                "G": avg_G,
+                "r_ripley": all_r_ripley,
+                "K": avg_K,
+                "L": avg_L,
+                "H": avg_H,
+                "cluster_analysis": avg_cluster_results,
+                "n_cells": valid_cells,
+            }
 
-        # Plot Ripley's K
-        axes[0, 2].plot(
-            all_r_ripley, avg_K, marker="o", lw=1, label=f"{dataset} (n={valid_cells})"
-        )
-
-        # Plot Ripley's L
-        axes[1, 0].plot(
-            all_r_ripley, avg_L, marker="o", lw=1, label=f"{dataset} (n={valid_cells})"
-        )
-
-        # Plot Ripley's H
-        axes[1, 1].plot(
-            all_r_ripley, avg_H, marker="o", lw=1, label=f"{dataset} (n={valid_cells})"
-        )
-    else:
-        print(f"No valid cells found for {dataset}")
-
-# Finalize RDF plot
-axes[0, 0].set_xlabel("geodesic distance r")
-axes[0, 0].set_ylabel("g(r)")
-axes[0, 0].set_title(f"RDF")
-axes[0, 0].legend()
-axes[0, 0].grid(True, alpha=0.3)
-
-# Finalize CDF plot
-axes[0, 1].set_xlabel("geodesic distance r")
-axes[0, 1].set_ylabel("G(r)")
-axes[0, 1].set_title(f"CDF (G)")
-axes[0, 1].legend()
-axes[0, 1].grid(True, alpha=0.3)
-
-# Finalize Ripley's K plot
-axes[0, 2].set_xlabel("geodesic distance r")
-axes[0, 2].set_ylabel("K(r)")
-axes[0, 2].set_title(f"Ripley's K")
-axes[0, 2].set_xscale("log")  # Set x-axis to logarithmic scale base 2
-axes[0, 2].set_yscale("log")  # Set y-axis to logarithmic scale base 2
-axes[0, 2].legend()
-axes[0, 2].grid(True, alpha=0.3)
-# Add reference line y=π*r² for random distribution
-x_lim = axes[0, 2].get_xlim()
-r_ref = np.linspace(x_lim[0], x_lim[1], 100)
-k_random = np.pi * r_ref**2
-axes[0, 2].plot(r_ref, k_random, "k--", alpha=0.5, label="Random (K=πr²)")
-
-# Finalize Ripley's L plot
-axes[1, 0].set_xlabel("geodesic distance r")
-axes[1, 0].set_ylabel("L(r)")
-axes[1, 0].set_title(f"Ripley's L")
-axes[1, 0].legend()
-axes[1, 0].grid(True, alpha=0.3)
-# Add reference line y=x for random distribution
-x_lim = axes[1, 0].get_xlim()
-axes[1, 0].plot(x_lim, x_lim, "k--", alpha=0.5, label="Random (L=r)")
-
-# Finalize Ripley's H plot
-axes[1, 1].set_xlabel("geodesic distance r")
-axes[1, 1].set_ylabel("H(r)")
-axes[1, 1].set_title(f"Ripley's H")
-axes[1, 1].legend()
-axes[1, 1].grid(True, alpha=0.3)
-axes[1, 1].axhline(
-    y=0, color="black", linestyle="--", alpha=0.5
-)  # Reference line at H=0
-
-# Hide the empty subplot
-axes[1, 2].axis("off")
-
-plt.tight_layout()
-fig_path = os.path.join(figures_dir, "measure_clustering_summary.png")
-plt.savefig(fig_path, dpi=300)
-plt.close(fig)
-
-# Print cluster analysis summary
-print("\n" + "=" * 80)
-print("CLUSTER ANALYSIS SUMMARY")
-print("=" * 80)
-
-for dataset in datasets:
-    if dataset in dataset_metrics and "cluster_analysis" in dataset_metrics[dataset]:
-        summary_lines = []
-        print(f"\n{dataset.upper()}:")
-        summary_lines.append(f"{dataset.upper()}:")
-        print("-" * 50)
-        summary_lines.append("-" * 50)
-
-        cluster_data = dataset_metrics[dataset]["cluster_analysis"]
-
-        # Print results organized by radius
-        radii = sorted(set(key[0] for key in cluster_data.keys()))
-        density_thresholds = sorted(set(key[1] for key in cluster_data.keys()))
-
-        print(
-            f"{'Radius':<8} {'DensThresh':<12} {'AvgClusters':<12} {'StdClusters':<12} {'AvgClusterSize':<15} {'FracDense':<10}"
-        )
-        summary_lines.append(
-            f"{'Radius':<8} {'DensThresh':<12} {'AvgClusters':<12} {'StdClusters':<12} {'AvgClusterSize':<15} {'FracDense':<10}"
-        )
-        print("-" * 80)
-        summary_lines.append("-" * 80)
-
-        for radius in radii:
-            for density_thresh in density_thresholds:
-                key = (radius, density_thresh)
-                if key in cluster_data:
-                    data = cluster_data[key]
-                    line = (
-                        f"{radius:<8} {density_thresh:<12} {data['avg_n_clusters']:<12.2f} "
-                        f"{data['std_n_clusters']:<12.2f} {data['avg_cluster_size']:<15.2f} "
-                        f"{data['avg_fraction_dense']:<10.3f}"
-                    )
-                    print(line)
-                    summary_lines.append(line)
-
-        # Summary statistics
-        print(f"\nSummary for {dataset}:")
-        summary_lines.append("")
-        summary_lines.append(f"Summary for {dataset}:")
-        max_clusters_key = max(
-            cluster_data.keys(), key=lambda k: cluster_data[k]["avg_n_clusters"]
-        )
-        max_clusters_data = cluster_data[max_clusters_key]
-        line = f"  Max avg clusters: {max_clusters_data['avg_n_clusters']:.2f} at radius={max_clusters_key[0]}, density_thresh={max_clusters_key[1]}"
-        print(line)
-        summary_lines.append(line)
-
-        # Find optimal clustering parameters (high cluster count, reasonable cluster size)
-        optimal_configs = [
-            (k, v)
-            for k, v in cluster_data.items()
-            if v["avg_n_clusters"] >= 2 and 3 <= v["avg_cluster_size"] <= 20
-        ]
-        if optimal_configs:
-            optimal_key, optimal_data = max(
-                optimal_configs, key=lambda x: x[1]["avg_n_clusters"]
+            # Plot averaged metrics
+            # Plot RDF
+            axes[0, 0].plot(
+                all_r, avg_g, marker="o", lw=1, label=f"{dataset} (n={valid_cells})"
             )
-            line = (
-                f"  Optimal config: radius={optimal_key[0]}, density_thresh={optimal_key[1]} "
-                f"-> {optimal_data['avg_n_clusters']:.2f} clusters, {optimal_data['avg_cluster_size']:.2f} avg size"
+
+            # Plot CDF (G)
+            axes[0, 1].plot(
+                all_r_g, avg_G, marker="o", lw=1, label=f"{dataset} (n={valid_cells})"
             )
+
+            # Plot Ripley's K
+            axes[0, 2].plot(
+                all_r_ripley, avg_K, marker="o", lw=1, label=f"{dataset} (n={valid_cells})"
+            )
+
+            # Plot Ripley's L
+            axes[1, 0].plot(
+                all_r_ripley, avg_L, marker="o", lw=1, label=f"{dataset} (n={valid_cells})"
+            )
+
+            # Plot Ripley's H
+            axes[1, 1].plot(
+                all_r_ripley, avg_H, marker="o", lw=1, label=f"{dataset} (n={valid_cells})"
+            )
+        else:
+            print(f"No valid cells found for {dataset}")
+
+    # Finalize RDF plot
+    axes[0, 0].set_xlabel("geodesic distance r")
+    axes[0, 0].set_ylabel("g(r)")
+    axes[0, 0].set_title(f"RDF")
+    axes[0, 0].legend()
+    axes[0, 0].grid(True, alpha=0.3)
+
+    # Finalize CDF plot
+    axes[0, 1].set_xlabel("geodesic distance r")
+    axes[0, 1].set_ylabel("G(r)")
+    axes[0, 1].set_title(f"CDF (G)")
+    axes[0, 1].legend()
+    axes[0, 1].grid(True, alpha=0.3)
+
+    # Finalize Ripley's K plot
+    axes[0, 2].set_xlabel("geodesic distance r")
+    axes[0, 2].set_ylabel("K(r)")
+    axes[0, 2].set_title(f"Ripley's K")
+    axes[0, 2].set_xscale("log")  # Set x-axis to logarithmic scale base 2
+    axes[0, 2].set_yscale("log")  # Set y-axis to logarithmic scale base 2
+    axes[0, 2].legend()
+    axes[0, 2].grid(True, alpha=0.3)
+    # Add reference line y=π*r² for random distribution
+    x_lim = axes[0, 2].get_xlim()
+    r_ref = np.linspace(x_lim[0], x_lim[1], 100)
+    k_random = np.pi * r_ref**2
+    axes[0, 2].plot(r_ref, k_random, "k--", alpha=0.5, label="Random (K=πr²)")
+
+    # Finalize Ripley's L plot
+    axes[1, 0].set_xlabel("geodesic distance r")
+    axes[1, 0].set_ylabel("L(r)")
+    axes[1, 0].set_title(f"Ripley's L")
+    axes[1, 0].legend()
+    axes[1, 0].grid(True, alpha=0.3)
+    # Add reference line y=x for random distribution
+    x_lim = axes[1, 0].get_xlim()
+    axes[1, 0].plot(x_lim, x_lim, "k--", alpha=0.5, label="Random (L=r)")
+
+    # Finalize Ripley's H plot
+    axes[1, 1].set_xlabel("geodesic distance r")
+    axes[1, 1].set_ylabel("H(r)")
+    axes[1, 1].set_title(f"Ripley's H")
+    axes[1, 1].legend()
+    axes[1, 1].grid(True, alpha=0.3)
+    axes[1, 1].axhline(
+        y=0, color="black", linestyle="--", alpha=0.5
+    )  # Reference line at H=0
+
+    # Hide the empty subplot
+    axes[1, 2].axis("off")
+
+    plt.tight_layout()
+    fig_path = os.path.join(figures_dir, "measure_clustering_summary.png")
+    plt.savefig(fig_path, dpi=300)
+    plt.close(fig)
+
+    # Print cluster analysis summary
+    print("\n" + "=" * 80)
+    print("CLUSTER ANALYSIS SUMMARY")
+    print("=" * 80)
+
+    for dataset in datasets:
+        if dataset in dataset_metrics and "cluster_analysis" in dataset_metrics[dataset]:
+            summary_lines = []
+            print(f"\n{dataset.upper()}:")
+            summary_lines.append(f"{dataset.upper()}:")
+            print("-" * 50)
+            summary_lines.append("-" * 50)
+
+            cluster_data = dataset_metrics[dataset]["cluster_analysis"]
+
+            # Print results organized by radius
+            radii = sorted(set(key[0] for key in cluster_data.keys()))
+            density_thresholds = sorted(set(key[1] for key in cluster_data.keys()))
+
+            print(
+                f"{'Radius':<8} {'DensThresh':<12} {'AvgClusters':<12} {'StdClusters':<12} {'AvgClusterSize':<15} {'FracDense':<10}"
+            )
+            summary_lines.append(
+                f"{'Radius':<8} {'DensThresh':<12} {'AvgClusters':<12} {'StdClusters':<12} {'AvgClusterSize':<15} {'FracDense':<10}"
+            )
+            print("-" * 80)
+            summary_lines.append("-" * 80)
+
+            for radius in radii:
+                for density_thresh in density_thresholds:
+                    key = (radius, density_thresh)
+                    if key in cluster_data:
+                        data = cluster_data[key]
+                        line = (
+                            f"{radius:<8} {density_thresh:<12} {data['avg_n_clusters']:<12.2f} "
+                            f"{data['std_n_clusters']:<12.2f} {data['avg_cluster_size']:<15.2f} "
+                            f"{data['avg_fraction_dense']:<10.3f}"
+                        )
+                        print(line)
+                        summary_lines.append(line)
+
+            # Summary statistics
+            print(f"\nSummary for {dataset}:")
+            summary_lines.append("")
+            summary_lines.append(f"Summary for {dataset}:")
+            max_clusters_key = max(
+                cluster_data.keys(), key=lambda k: cluster_data[k]["avg_n_clusters"]
+            )
+            max_clusters_data = cluster_data[max_clusters_key]
+            line = f"  Max avg clusters: {max_clusters_data['avg_n_clusters']:.2f} at radius={max_clusters_key[0]}, density_thresh={max_clusters_key[1]}"
             print(line)
             summary_lines.append(line)
 
-        summary_path = os.path.join(data_dir, f"{dataset}_summary.txt")
-        with open(summary_path, "w", encoding="utf-8") as f:
-            f.write("\n".join(summary_lines))
-    else:
-        summary_path = os.path.join(data_dir, f"{dataset}_summary.txt")
-        with open(summary_path, "w", encoding="utf-8") as f:
-            f.write(f"{dataset.upper()}: No cluster analysis data available.")
+            # Find optimal clustering parameters (high cluster count, reasonable cluster size)
+            optimal_configs = [
+                (k, v)
+                for k, v in cluster_data.items()
+                if v["avg_n_clusters"] >= 2 and 3 <= v["avg_cluster_size"] <= 20
+            ]
+            if optimal_configs:
+                optimal_key, optimal_data = max(
+                optimal_configs, key=lambda x: x[1]["avg_n_clusters"]
+                )
+                line = (
+                f"  Optimal config: radius={optimal_key[0]}, density_thresh={optimal_key[1]} "
+                f"-> {optimal_data['avg_n_clusters']:.2f} clusters, {optimal_data['avg_cluster_size']:.2f} avg size"
+                )
+                print(line)
+                summary_lines.append(line)
 
-print("\n" + "=" * 80)
+            summary_path = os.path.join(data_dir, f"{dataset}_summary.txt")
+            with open(summary_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(summary_lines))
+        else:
+            summary_path = os.path.join(data_dir, f"{dataset}_summary.txt")
+            with open(summary_path, "w", encoding="utf-8") as f:
+                f.write(f"{dataset.upper()}: No cluster analysis data available.")
 
-# Create heatmaps for cluster analysis
-print("Creating cluster analysis heatmaps...")
+    print("\n" + "=" * 80)
 
-# Extract unique radii and density thresholds for heatmap axes
-all_radii = set()
-all_density_thresholds = set()
-for dataset in datasets:
-    if dataset in dataset_metrics and "cluster_analysis" in dataset_metrics[dataset]:
-        cluster_data = dataset_metrics[dataset]["cluster_analysis"]
-        for radius, density_thresh in cluster_data.keys():
-            all_radii.add(radius)
-            all_density_thresholds.add(density_thresh)
+    # Create heatmaps for cluster analysis
+    print("Creating cluster analysis heatmaps...")
 
-radii_sorted = sorted(all_radii)
-density_thresholds_sorted = sorted(all_density_thresholds)
-
-if radii_sorted and density_thresholds_sorted:
-    # Create figure with 2 rows (cluster count, cluster size) and 3 columns (datasets)
-    fig_heatmaps, axes_heatmaps = plt.subplots(2, 3, figsize=(18, 12))
-
-    # First pass: collect all data to determine global min/max for consistent color scaling
-    all_cluster_counts = []
-    all_cluster_sizes = []
-    all_matrices = {}
-
+    # Extract unique radii and density thresholds for heatmap axes
+    all_radii = set()
+    all_density_thresholds = set()
     for dataset in datasets:
-        if (
-            dataset in dataset_metrics
-            and "cluster_analysis" in dataset_metrics[dataset]
-        ):
+        if dataset in dataset_metrics and "cluster_analysis" in dataset_metrics[dataset]:
             cluster_data = dataset_metrics[dataset]["cluster_analysis"]
+            for radius, density_thresh in cluster_data.keys():
+                all_radii.add(radius)
+                all_density_thresholds.add(density_thresh)
 
-            # Initialize matrices for heatmaps
-            cluster_count_matrix = np.full(
+    radii_sorted = sorted(all_radii)
+    density_thresholds_sorted = sorted(all_density_thresholds)
+
+    if radii_sorted and density_thresholds_sorted:
+        # Create figure with 2 rows (cluster count, cluster size) and 3 columns (datasets)
+        fig_heatmaps, axes_heatmaps = plt.subplots(2, 3, figsize=(18, 12))
+
+        # First pass: collect all data to determine global min/max for consistent color scaling
+        all_cluster_counts = []
+        all_cluster_sizes = []
+        all_matrices = {}
+
+        for dataset in datasets:
+            if (
+                dataset in dataset_metrics
+                and "cluster_analysis" in dataset_metrics[dataset]
+            ):
+                cluster_data = dataset_metrics[dataset]["cluster_analysis"]
+
+                # Initialize matrices for heatmaps
+                cluster_count_matrix = np.full(
                 (len(density_thresholds_sorted), len(radii_sorted)), np.nan
-            )
-            cluster_size_matrix = np.full(
+                )
+                cluster_size_matrix = np.full(
                 (len(density_thresholds_sorted), len(radii_sorted)), np.nan
-            )
+                )
 
-            # Fill matrices with data
-            for i, density_thresh in enumerate(density_thresholds_sorted):
-                for j, radius in enumerate(radii_sorted):
-                    key = (radius, density_thresh)
-                    if key in cluster_data:
-                        cluster_count_matrix[i, j] = cluster_data[key]["avg_n_clusters"]
-                        cluster_size_matrix[i, j] = cluster_data[key][
-                            "avg_cluster_size"
-                        ]
+                # Fill matrices with data
+                for i, density_thresh in enumerate(density_thresholds_sorted):
+                    for j, radius in enumerate(radii_sorted):
+                        key = (radius, density_thresh)
+                        if key in cluster_data:
+                            cluster_count_matrix[i, j] = cluster_data[key]["avg_n_clusters"]
+                            cluster_size_matrix[i, j] = cluster_data[key][
+                                "avg_cluster_size"
+                            ]
 
-            # Store matrices and collect values for global scaling
-            all_matrices[dataset] = (cluster_count_matrix, cluster_size_matrix)
-            all_cluster_counts.extend(
+                # Store matrices and collect values for global scaling
+                all_matrices[dataset] = (cluster_count_matrix, cluster_size_matrix)
+                all_cluster_counts.extend(
                 cluster_count_matrix[~np.isnan(cluster_count_matrix)]
-            )
-            all_cluster_sizes.extend(
+                )
+                all_cluster_sizes.extend(
                 cluster_size_matrix[~np.isnan(cluster_size_matrix)]
-            )
+                )
 
-    # Calculate global min/max for consistent color scaling
-    if all_cluster_counts:
-        count_vmin, count_vmax = min(all_cluster_counts), max(all_cluster_counts)
-    else:
-        count_vmin, count_vmax = 0, 1
+        # Calculate global min/max for consistent color scaling
+        if all_cluster_counts:
+            count_vmin, count_vmax = min(all_cluster_counts), max(all_cluster_counts)
+        else:
+            count_vmin, count_vmax = 0, 1
 
-    if all_cluster_sizes:
-        size_vmin, size_vmax = min(all_cluster_sizes), max(all_cluster_sizes)
-    else:
-        size_vmin, size_vmax = 0, 1
+        if all_cluster_sizes:
+            size_vmin, size_vmax = min(all_cluster_sizes), max(all_cluster_sizes)
+        else:
+            size_vmin, size_vmax = 0, 1
 
-    for col, dataset in enumerate(datasets):
-        if (
-            dataset in dataset_metrics
-            and "cluster_analysis" in dataset_metrics[dataset]
-        ):
-            # Get pre-calculated matrices
-            cluster_count_matrix, cluster_size_matrix = all_matrices[dataset]
+        for col, dataset in enumerate(datasets):
+            if (
+                dataset in dataset_metrics
+                and "cluster_analysis" in dataset_metrics[dataset]
+            ):
+                # Get pre-calculated matrices
+                cluster_count_matrix, cluster_size_matrix = all_matrices[dataset]
 
-            # Plot cluster count heatmap (top row) with global color scale
-            # Flip matrix vertically so smallest density threshold is at bottom
-            im1 = axes_heatmaps[0, col].imshow(
+                # Plot cluster count heatmap (top row) with global color scale
+                # Flip matrix vertically so smallest density threshold is at bottom
+                im1 = axes_heatmaps[0, col].imshow(
                 np.flipud(cluster_count_matrix),
                 cmap="viridis",
                 aspect="auto",
                 interpolation="nearest",
                 vmin=count_vmin,
                 vmax=count_vmax,
-            )
-            axes_heatmaps[0, col].set_title(f"{dataset}\nAvg Number of Clusters")
-            axes_heatmaps[0, col].set_xlabel("Radius")
-            axes_heatmaps[0, col].set_ylabel("Density Threshold")
+                )
+                axes_heatmaps[0, col].set_title(f"{dataset}\nAvg Number of Clusters")
+                axes_heatmaps[0, col].set_xlabel("Radius")
+                axes_heatmaps[0, col].set_ylabel("Density Threshold")
 
-            # Set ticks and labels
-            axes_heatmaps[0, col].set_xticks(range(len(radii_sorted)))
-            axes_heatmaps[0, col].set_xticklabels(
+                # Set ticks and labels
+                axes_heatmaps[0, col].set_xticks(range(len(radii_sorted)))
+                axes_heatmaps[0, col].set_xticklabels(
                 [str(r) for r in radii_sorted], rotation=45
-            )
-            axes_heatmaps[0, col].set_yticks(range(len(density_thresholds_sorted)))
-            # Reverse the order of y-tick labels so smallest is at bottom
-            axes_heatmaps[0, col].set_yticklabels(
+                )
+                axes_heatmaps[0, col].set_yticks(range(len(density_thresholds_sorted)))
+                # Reverse the order of y-tick labels so smallest is at bottom
+                axes_heatmaps[0, col].set_yticklabels(
                 [str(d) for d in reversed(density_thresholds_sorted)]
-            )
+                )
 
-            # Add colorbar
-            plt.colorbar(im1, ax=axes_heatmaps[0, col], shrink=0.8)
+                # Add colorbar
+                plt.colorbar(im1, ax=axes_heatmaps[0, col], shrink=0.8)
 
-            # Plot cluster size heatmap (bottom row) with global color scale
-            # Flip matrix vertically so smallest density threshold is at bottom
-            im2 = axes_heatmaps[1, col].imshow(
+                # Plot cluster size heatmap (bottom row) with global color scale
+                # Flip matrix vertically so smallest density threshold is at bottom
+                im2 = axes_heatmaps[1, col].imshow(
                 np.flipud(cluster_size_matrix),
                 cmap="viridis",
                 aspect="auto",
                 interpolation="nearest",
                 vmin=size_vmin,
                 vmax=size_vmax,
-            )
-            axes_heatmaps[1, col].set_title(f"{dataset}\nAvg Cluster Size")
-            axes_heatmaps[1, col].set_xlabel("Radius")
-            axes_heatmaps[1, col].set_ylabel("Density Threshold")
+                )
+                axes_heatmaps[1, col].set_title(f"{dataset}\nAvg Cluster Size")
+                axes_heatmaps[1, col].set_xlabel("Radius")
+                axes_heatmaps[1, col].set_ylabel("Density Threshold")
 
-            # Set ticks and labels
-            axes_heatmaps[1, col].set_xticks(range(len(radii_sorted)))
-            axes_heatmaps[1, col].set_xticklabels(
+                # Set ticks and labels
+                axes_heatmaps[1, col].set_xticks(range(len(radii_sorted)))
+                axes_heatmaps[1, col].set_xticklabels(
                 [str(r) for r in radii_sorted], rotation=45
-            )
-            axes_heatmaps[1, col].set_yticks(range(len(density_thresholds_sorted)))
-            # Reverse the order of y-tick labels so smallest is at bottom
-            axes_heatmaps[1, col].set_yticklabels(
+                )
+                axes_heatmaps[1, col].set_yticks(range(len(density_thresholds_sorted)))
+                # Reverse the order of y-tick labels so smallest is at bottom
+                axes_heatmaps[1, col].set_yticklabels(
                 [str(d) for d in reversed(density_thresholds_sorted)]
-            )
+                )
 
-            # Add colorbar
-            plt.colorbar(im2, ax=axes_heatmaps[1, col], shrink=0.8)
+                # Add colorbar
+                plt.colorbar(im2, ax=axes_heatmaps[1, col], shrink=0.8)
 
-            # Add value annotations on heatmaps with larger font
-            # Note: since we flipped the matrix, we need to adjust the y-coordinate
-            for i in range(len(density_thresholds_sorted)):
-                for j in range(len(radii_sorted)):
-                    # For flipped matrix, use (len - 1 - i) for y-coordinate
-                    flipped_i = len(density_thresholds_sorted) - 1 - i
-                    if not np.isnan(cluster_count_matrix[i, j]):
-                        axes_heatmaps[0, col].text(
-                            j,
-                            flipped_i,
-                            f"{cluster_count_matrix[i, j]:.1f}",
-                            ha="center",
-                            va="center",
-                            color=(
-                                "white"
-                                if cluster_count_matrix[i, j]
-                                > (count_vmin + count_vmax) / 2
-                                else "black"
-                            ),
-                            fontsize=12,
-                            fontweight="bold",
-                        )
-                    if not np.isnan(cluster_size_matrix[i, j]):
-                        axes_heatmaps[1, col].text(
-                            j,
-                            flipped_i,
-                            f"{cluster_size_matrix[i, j]:.1f}",
-                            ha="center",
-                            va="center",
-                            color=(
-                                "white"
-                                if cluster_size_matrix[i, j]
-                                > (size_vmin + size_vmax) / 2
-                                else "black"
-                            ),
-                            fontsize=12,
-                            fontweight="bold",
-                        )
-        else:
-            # If no data available, hide the subplots
-            axes_heatmaps[0, col].axis("off")
-            axes_heatmaps[1, col].axis("off")
-            axes_heatmaps[0, col].text(
+                # Add value annotations on heatmaps with larger font
+                # Note: since we flipped the matrix, we need to adjust the y-coordinate
+                for i in range(len(density_thresholds_sorted)):
+                    for j in range(len(radii_sorted)):
+                        # For flipped matrix, use (len - 1 - i) for y-coordinate
+                        flipped_i = len(density_thresholds_sorted) - 1 - i
+                        if not np.isnan(cluster_count_matrix[i, j]):
+                            axes_heatmaps[0, col].text(
+                                j,
+                                flipped_i,
+                                f"{cluster_count_matrix[i, j]:.1f}",
+                                ha="center",
+                                va="center",
+                                color=(
+                                    "white"
+                                    if cluster_count_matrix[i, j]
+                                    > (count_vmin + count_vmax) / 2
+                                    else "black"
+                                ),
+                                fontsize=12,
+                                fontweight="bold",
+                            )
+                        if not np.isnan(cluster_size_matrix[i, j]):
+                            axes_heatmaps[1, col].text(
+                                j,
+                                flipped_i,
+                                f"{cluster_size_matrix[i, j]:.1f}",
+                                ha="center",
+                                va="center",
+                                color=(
+                                    "white"
+                                    if cluster_size_matrix[i, j]
+                                    > (size_vmin + size_vmax) / 2
+                                    else "black"
+                                ),
+                                fontsize=12,
+                                fontweight="bold",
+                            )
+            else:
+                # If no data available, hide the subplots
+                axes_heatmaps[0, col].axis("off")
+                axes_heatmaps[1, col].axis("off")
+                axes_heatmaps[0, col].text(
                 0.5,
                 0.5,
                 f"No data\nfor {dataset}",
                 ha="center",
                 va="center",
                 transform=axes_heatmaps[0, col].transAxes,
-            )
+                )
 
-    plt.tight_layout()
-    heatmap_path = os.path.join(figures_dir, "cluster_analysis_heatmaps.png")
-    plt.savefig(heatmap_path, dpi=300)
-    plt.close(fig_heatmaps)
+        plt.tight_layout()
+        heatmap_path = os.path.join(figures_dir, "cluster_analysis_heatmaps.png")
+        plt.savefig(heatmap_path, dpi=300)
+        plt.close(fig_heatmaps)
 
-    print("Heatmaps created successfully!")
-else:
-    print("No cluster analysis data available for heatmaps.")
+        print("Heatmaps created successfully!")
+    else:
+        print("No cluster analysis data available for heatmaps.")
 
 # %%
 # from funlib.persistence import open_ds

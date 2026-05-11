@@ -21,11 +21,7 @@ Each stage's working directory is below. Outputs live under `/nrs/cellmap/ackerm
 
 Trained on 8 nm; evaluated on the native 4 nm downsampled to 8 nm.
 
-Per-dataset YAMLs live in [preprocessing/annotations/processing_yamls/](preprocessing/annotations/processing_yamls/) and are run via `annotation-processing-utils` cluster submission:
-
-```
-python /groups/cellmap/cellmap/ackermand/Programming/annotation-processing-utils/annotation_processing_utils/cli/cluster_submission.py
-```
+Per-dataset YAMLs live in [preprocessing/annotations/processing_yamls/](preprocessing/annotations/processing_yamls/). These YAMLs are the input to the `submit-*` console scripts used in stage 2.
 
 Other helpers in this dir:
 - `create_masks.py`, `fix_cell_segmentations.py`, `relabel_cell_masks_for_annotating.py` — mask preparation.
@@ -34,7 +30,21 @@ Other helpers in this dir:
 
 ## 2. Training / validation / test — [validation_and_test/](validation_and_test/)
 
-DaCapo training + inference + scoring:
+The DaCapo training + small-crop inference + scoring pipeline is driven by the `submit-*` console scripts installed by [annotation-processing-utils](/groups/cellmap/cellmap/ackermand/Programming/annotation-processing-utils/) (see its `[project.scripts]`). Each is a thin wrapper around `generic_submitter()` in [cluster_submission.py](/groups/cellmap/cellmap/ackermand/Programming/annotation-processing-utils/annotation_processing_utils/cli/cluster_submission.py) and takes the same processing YAML used in stage 1:
+
+```
+submit-dacapo-train  <yaml>     # training
+submit-inference     <yaml>     # validation/test inference on crops
+submit-mws           <yaml>     # mutex watershed
+submit-rusty-mws     <yaml>     # mutex watershed (rusty_mws env)
+submit-metrics       <yaml>     # scoring
+```
+
+For `submit-rusty-mws`, activate the `annotation_processing_utils_mws` env (it pulls numpy 2 via `rusty_mws` and is kept separate from the dacapo dask stack).
+
+Flags: `--no-job-array`, `--resubmit-failures <log,...>`, `--resubmit-from-array <dir>`, `--auto-resubmit`, `--max-retries N`.
+
+Repo-local helpers in this dir:
 - `run_validation_inference.py` — runs validation inference across a range of runs/regions.
 - `predict_with_write_size.py` — prediction with a specified write size (the default did not work).
 - `get_best.py` — picks best iterations per run.
@@ -58,7 +68,7 @@ Submission commands recorded in [whole_datasets/prediction_yamls/submissions.md]
 
 ## 4. Mutex watershed — [whole_datasets/mws/](whole_datasets/mws/)
 
-Per-dataset `rusty_mws.PostProcessor` driver scripts. Activate the `rusty_mws` conda env (it requires numpy 2, kept separate from the dacapo env). Submission commands in [whole_datasets/mws/submissions.md](whole_datasets/mws/submissions.md).
+Whole-dataset MWS bypasses the `submit-rusty-mws` console-script flow: per-dataset Python scripts call `rusty_mws.PostProcessor` directly with the affinities path, mask, and hyperparameters (`adj_bias`, `lr_bias`, `lr_bias_ratio`, `filter_val`, neighborhood). Activate the `rusty_mws` conda env. Submission `bsub` commands in [whole_datasets/mws/submissions.md](whole_datasets/mws/submissions.md).
 
 ## 5. Postprocessing — [postprocessing/](postprocessing/)
 

@@ -60,11 +60,15 @@ bsub -P cellmap -n 4 -o .../predictions/<date>_<dataset>.out python \
   predict -p <date>_<dataset>.yaml -w 100
 ```
 
-Two generations of configs, both covering all six datasets. **`2025-09-15_*` supersedes `2025-02-15_*`** and is the current set:
-- `2025-02-15_*.yaml` — first round. Per-dataset training setups (`...jrc_22ak351-leaf-2l...` for 2l/2lb, `...leaf-3m...` for 3m/3mb, `...leaf-2l...bs_2__0` for 3r/3rb), iterations 75k (most) or 200k (3r/3rb), mixed `.n5` / no-container raw inputs.
-- `2025-09-15_*.yaml` — second round. Migrates to `.zarr` containers, uses combined training setups (`combined_healthy_and_gall` for 3m/3mb; `combined_healthy` for 3r/3rb), runs to higher iterations (200k for 2l/2lb, 425k for the rest). The 8 nm (`2l`/`3m`/`3r`) submissions are routed to `gpu_h200`. Per [whole_datasets/prediction_yamls/README.md](whole_datasets/prediction_yamls/README.md): parameters and the `2025-09-15` name were copied from the `b` datasets across to the 8 nm versions for consistency.
+**Current configs: `2025-09-15_*.yaml`** — all six datasets on `.zarr` containers, combined training setups (`combined_healthy_and_gall` for 3m/3mb; `combined_healthy` for 3r/3rb; the `2l` setup for 2l/2lb), iterations 200k (2l/2lb) or 425k (rest). The 8 nm (`2l` / `3m` / `3r`) submissions are routed to `gpu_h200`. Per [whole_datasets/prediction_yamls/README.md](whole_datasets/prediction_yamls/README.md), parameters and the `2025-09-15` name were copied from the `b` datasets across to the 8 nm versions for consistency.
 
 Submission commands recorded in [whole_datasets/prediction_yamls/submissions.md](whole_datasets/prediction_yamls/submissions.md).
+
+<details>
+<summary>Deprecated: <code>2025-02-15_*.yaml</code></summary>
+
+Earlier round, kept for reference. Per-dataset training setups (`...jrc_22ak351-leaf-2l...` for 2l/2lb, `...leaf-3m...` for 3m/3mb, `...leaf-2l...bs_2__0` for 3r/3rb), iterations 75k (most) or 200k (3r/3rb), mixed `.n5` / no-container raw inputs. Superseded by `2025-09-15_*`.
+</details>
 
 ## 4. Mutex watershed — [whole_datasets/mws/](whole_datasets/mws/)
 

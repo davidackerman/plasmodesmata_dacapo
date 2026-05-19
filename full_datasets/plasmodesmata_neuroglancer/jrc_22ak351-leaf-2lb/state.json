@@ -18,6 +18,16 @@
         }
       ],
       "name": "plasmodesmata"
+    },
+    {
+      "type": "segmentation",
+      "source": [
+        {
+          "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/data/jrc_22ak351-leaf-2lb/jrc_22ak351-leaf-2lb.zarr/recon-1/labels/inference/segmentations/cell"
+        }
+      ],
+      "name": "cell",
+      "visible": false
     }
   ],
   "dimensions": {

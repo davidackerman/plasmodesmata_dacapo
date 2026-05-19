@@ -115,7 +115,7 @@
             <ul class="legend">
                 <li><code>raw</code> — EM, multiscale parent group.</li>
                 <li><code>plasmodesmata</code> — post-MWS / postprocessed plasmodesmata instance segmentation. Resolved from <code>/nrs/cellmap/data/&lt;dataset&gt;/&lt;dataset&gt;.zarr/recon-1/labels/inference/segmentations/pd</code> when present (OpenOrganelle-style final location, currently the b datasets); otherwise from <code>leaf-gall/&lt;dataset&gt;.zarr/plasmodesmata_cleaned</code> (the non-b datasets that haven't been moved yet).</li>
-                <li><code>cell_fixed</code> — proofread cell-mask segmentation. When precomputed multires meshes are available (8 nm datasets only) they are bundled into the same layer via a second source.</li>
+                <li><code>cell</code> — proofread cell-mask segmentation. Resolved from the OpenOrganelle path <code>/nrs/cellmap/data/&lt;dataset&gt;/&lt;dataset&gt;.zarr/recon-1/labels/inference/segmentations/cell</code> when present, falling back to <code>leaf-gall/&lt;dataset&gt;.zarr/cell_fixed</code>. When precomputed multires meshes are available (8 nm datasets only, at <code>new_meshes/.../cell_fixed_neuroglancer/meshes</code>) they are bundled into the same layer via a second source.</li>
             </ul>
             <p class="info"><strong>Downloads.</strong> Each row's CSVs come from <code>/nrs/cellmap/ackermand/cellmap/analysisResults/leaf-gall/&lt;dataset&gt;/</code>. <code>cell_fixed.csv</code> + <code>plasmodesmata_lines_assigned_to_2_nearest_cells.csv</code> are only produced for the 8 nm datasets (cell-aware analysis).</p>
         </header>
@@ -130,32 +130,32 @@
             <tbody>
             <tr>
                 <td class="dataset-cell"><a href="https://neuroglancer-demo.appspot.com/#!https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/full_datasets/plasmodesmata_neuroglancer/jrc_22ak351-leaf-2l/state.json" target="_blank">jrc_22ak351-leaf-2l</a></td>
-                <td class="layers-cell">raw, plasmodesmata, cell_fixed+meshes</td>
+                <td class="layers-cell">raw, plasmodesmata, cell+meshes</td>
                 <td class="csv-cell"><a href="https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/analysisResults/leaf-gall/jrc_22ak351-leaf-2l/cell_fixed.csv" download class="download-btn">⬇ cell_fixed.csv</a> <a href="https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/analysisResults/leaf-gall/jrc_22ak351-leaf-2l/plasmodesmata.csv" download class="download-btn">⬇ plasmodesmata.csv</a> <a href="https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/analysisResults/leaf-gall/jrc_22ak351-leaf-2l/plasmodesmata_lines.csv" download class="download-btn">⬇ plasmodesmata_lines.csv</a> <a href="https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/analysisResults/leaf-gall/jrc_22ak351-leaf-2l/plasmodesmata_lines_assigned_to_2_nearest_cells.csv" download class="download-btn">⬇ plasmodesmata_lines_assigned_to_2_nearest_cells.csv</a></td>
             </tr>
             <tr>
                 <td class="dataset-cell"><a href="https://neuroglancer-demo.appspot.com/#!https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/full_datasets/plasmodesmata_neuroglancer/jrc_22ak351-leaf-2lb/state.json" target="_blank">jrc_22ak351-leaf-2lb</a></td>
-                <td class="layers-cell">raw, plasmodesmata</td>
+                <td class="layers-cell">raw, plasmodesmata, cell</td>
                 <td class="csv-cell"><span class="no-csv">n/a</span> <a href="https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/analysisResults/leaf-gall/jrc_22ak351-leaf-2lb/plasmodesmata.csv" download class="download-btn">⬇ plasmodesmata.csv</a> <a href="https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/analysisResults/leaf-gall/jrc_22ak351-leaf-2lb/plasmodesmata_lines.csv" download class="download-btn">⬇ plasmodesmata_lines.csv</a> <span class="no-csv">n/a</span></td>
             </tr>
             <tr>
                 <td class="dataset-cell"><a href="https://neuroglancer-demo.appspot.com/#!https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/full_datasets/plasmodesmata_neuroglancer/jrc_22ak351-leaf-3m/state.json" target="_blank">jrc_22ak351-leaf-3m</a></td>
-                <td class="layers-cell">raw, plasmodesmata, cell_fixed+meshes</td>
+                <td class="layers-cell">raw, plasmodesmata, cell+meshes</td>
                 <td class="csv-cell"><a href="https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/analysisResults/leaf-gall/jrc_22ak351-leaf-3m/cell_fixed.csv" download class="download-btn">⬇ cell_fixed.csv</a> <a href="https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/analysisResults/leaf-gall/jrc_22ak351-leaf-3m/plasmodesmata.csv" download class="download-btn">⬇ plasmodesmata.csv</a> <a href="https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/analysisResults/leaf-gall/jrc_22ak351-leaf-3m/plasmodesmata_lines.csv" download class="download-btn">⬇ plasmodesmata_lines.csv</a> <a href="https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/analysisResults/leaf-gall/jrc_22ak351-leaf-3m/plasmodesmata_lines_assigned_to_2_nearest_cells.csv" download class="download-btn">⬇ plasmodesmata_lines_assigned_to_2_nearest_cells.csv</a></td>
             </tr>
             <tr>
                 <td class="dataset-cell"><a href="https://neuroglancer-demo.appspot.com/#!https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/full_datasets/plasmodesmata_neuroglancer/jrc_22ak351-leaf-3mb/state.json" target="_blank">jrc_22ak351-leaf-3mb</a></td>
-                <td class="layers-cell">raw, plasmodesmata</td>
+                <td class="layers-cell">raw, plasmodesmata, cell</td>
                 <td class="csv-cell"><span class="no-csv">n/a</span> <a href="https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/analysisResults/leaf-gall/jrc_22ak351-leaf-3mb/plasmodesmata.csv" download class="download-btn">⬇ plasmodesmata.csv</a> <a href="https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/analysisResults/leaf-gall/jrc_22ak351-leaf-3mb/plasmodesmata_lines.csv" download class="download-btn">⬇ plasmodesmata_lines.csv</a> <span class="no-csv">n/a</span></td>
             </tr>
             <tr>
                 <td class="dataset-cell"><a href="https://neuroglancer-demo.appspot.com/#!https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/full_datasets/plasmodesmata_neuroglancer/jrc_22ak351-leaf-3r/state.json" target="_blank">jrc_22ak351-leaf-3r</a></td>
-                <td class="layers-cell">raw, plasmodesmata, cell_fixed+meshes</td>
+                <td class="layers-cell">raw, plasmodesmata, cell+meshes</td>
                 <td class="csv-cell"><a href="https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/analysisResults/leaf-gall/jrc_22ak351-leaf-3r/cell_fixed.csv" download class="download-btn">⬇ cell_fixed.csv</a> <a href="https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/analysisResults/leaf-gall/jrc_22ak351-leaf-3r/plasmodesmata.csv" download class="download-btn">⬇ plasmodesmata.csv</a> <a href="https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/analysisResults/leaf-gall/jrc_22ak351-leaf-3r/plasmodesmata_lines.csv" download class="download-btn">⬇ plasmodesmata_lines.csv</a> <a href="https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/analysisResults/leaf-gall/jrc_22ak351-leaf-3r/plasmodesmata_lines_assigned_to_2_nearest_cells.csv" download class="download-btn">⬇ plasmodesmata_lines_assigned_to_2_nearest_cells.csv</a></td>
             </tr>
             <tr>
                 <td class="dataset-cell"><a href="https://neuroglancer-demo.appspot.com/#!https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/full_datasets/plasmodesmata_neuroglancer/jrc_22ak351-leaf-3rb/state.json" target="_blank">jrc_22ak351-leaf-3rb</a></td>
-                <td class="layers-cell">raw, plasmodesmata</td>
+                <td class="layers-cell">raw, plasmodesmata, cell</td>
                 <td class="csv-cell"><span class="no-csv">n/a</span> <a href="https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/analysisResults/leaf-gall/jrc_22ak351-leaf-3rb/plasmodesmata.csv" download class="download-btn">⬇ plasmodesmata.csv</a> <a href="https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/analysisResults/leaf-gall/jrc_22ak351-leaf-3rb/plasmodesmata_lines.csv" download class="download-btn">⬇ plasmodesmata_lines.csv</a> <span class="no-csv">n/a</span></td>
             </tr>
             </tbody>

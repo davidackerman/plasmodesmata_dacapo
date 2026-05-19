@@ -90,6 +90,19 @@ def find_plasmodesmata_zarr(dataset):
     return None
 
 
+def find_cell_zarr(dataset):
+    """Same pattern for the cell segmentation: prefer the OO final location
+    (segmentations/cell), fall back to leaf-gall/<dataset>.zarr/cell_fixed."""
+    candidates = [
+        f"/nrs/cellmap/data/{dataset}/{dataset}.zarr/recon-1/labels/inference/segmentations/cell",
+        f"{LEAFGALL_ZARR_BASE}/{dataset}.zarr/cell_fixed",
+    ]
+    for p in candidates:
+        if os.path.isdir(p):
+            return p
+    return None
+
+
 def make_state(dataset):
     layers = []
 
@@ -109,16 +122,16 @@ def make_state(dataset):
             "name": "plasmodesmata",
         })
 
-    cell_path = f"{LEAFGALL_ZARR_BASE}/{dataset}.zarr/cell_fixed"
+    cell_path = find_cell_zarr(dataset)
     cell_mesh_path = f"{MESH_BASE}/{dataset}/cell_fixed_neuroglancer/meshes"
-    if os.path.isdir(cell_path):
+    if cell_path:
         cell_sources = [{"url": f"zarr://{nrs_to_url(cell_path)}"}]
         if os.path.isdir(cell_mesh_path):
             cell_sources.append({"url": f"precomputed://{nrs_to_url(cell_mesh_path)}"})
         layers.append({
             "type": "segmentation",
             "source": cell_sources,
-            "name": "cell_fixed",
+            "name": "cell",
             "visible": False,
         })
 
@@ -150,8 +163,8 @@ def make_html(datasets):
         layers_present = ["raw"]
         if find_plasmodesmata_zarr(ds):
             layers_present.append("plasmodesmata")
-        if os.path.isdir(f"{LEAFGALL_ZARR_BASE}/{ds}.zarr/cell_fixed"):
-            cell_chip = "cell_fixed"
+        if find_cell_zarr(ds):
+            cell_chip = "cell"
             if os.path.isdir(f"{MESH_BASE}/{ds}/cell_fixed_neuroglancer/meshes"):
                 cell_chip += "+meshes"
             layers_present.append(cell_chip)
@@ -283,7 +296,7 @@ def make_html(datasets):
             <ul class="legend">
                 <li><code>raw</code> — EM, multiscale parent group.</li>
                 <li><code>plasmodesmata</code> — post-MWS / postprocessed plasmodesmata instance segmentation. Resolved from <code>/nrs/cellmap/data/&lt;dataset&gt;/&lt;dataset&gt;.zarr/recon-1/labels/inference/segmentations/pd</code> when present (OpenOrganelle-style final location, currently the b datasets); otherwise from <code>leaf-gall/&lt;dataset&gt;.zarr/plasmodesmata_cleaned</code> (the non-b datasets that haven't been moved yet).</li>
-                <li><code>cell_fixed</code> — proofread cell-mask segmentation. When precomputed multires meshes are available (8 nm datasets only) they are bundled into the same layer via a second source.</li>
+                <li><code>cell</code> — proofread cell-mask segmentation. Resolved from the OpenOrganelle path <code>/nrs/cellmap/data/&lt;dataset&gt;/&lt;dataset&gt;.zarr/recon-1/labels/inference/segmentations/cell</code> when present, falling back to <code>leaf-gall/&lt;dataset&gt;.zarr/cell_fixed</code>. When precomputed multires meshes are available (8 nm datasets only, at <code>new_meshes/.../cell_fixed_neuroglancer/meshes</code>) they are bundled into the same layer via a second source.</li>
             </ul>
             <p class="info"><strong>Downloads.</strong> Each row's CSVs come from <code>/nrs/cellmap/ackermand/cellmap/analysisResults/leaf-gall/&lt;dataset&gt;/</code>. <code>cell_fixed.csv</code> + <code>plasmodesmata_lines_assigned_to_2_nearest_cells.csv</code> are only produced for the 8 nm datasets (cell-aware analysis).</p>
         </header>

@@ -5,14 +5,10 @@ plasmodesmata final whole-dataset results. Models the structure of
 
 Per dataset, the state shows:
   - raw EM (multiscale parent group)
-  - plasmodesmata_cleaned: post-MWS / postprocessed instance segmentation.
-    Lives in leaf-gall/<dataset>.zarr/ for 8 nm datasets, or under
-    leaf-gall/backup_4nm/<dataset>.zarr/ for the 4 nm b datasets (the
-    top-level b zarrs are empty stubs).
-  - plasmodesmata_filteredIDs: post-filter segmentation for the b datasets
+  - plasmodesmata_cleaned: post-MWS / postprocessed instance segmentation
   - cell_fixed: proofread cell-mask segmentation + precomputed multires meshes
     (the segmentation zarr and the precomputed mesh dir are bundled in the
-    same layer via two sources; 8 nm datasets only)
+    same layer via two sources)
 
 The HTML index lists each dataset with download links for the measurement
 CSVs produced by cellmap-analyze:
@@ -74,24 +70,6 @@ def make_grayscale_shader(cmin=0, cmax=255):
     )
 
 
-def find_plasmodesmata_zarr(dataset):
-    """The 8 nm datasets store the postprocessed segmentation at
-    leaf-gall/<dataset>.zarr/plasmodesmata_cleaned; the 4 nm b datasets'
-    top-level zarr is an empty stub and the actual data lives under
-    leaf-gall/backup_4nm/<dataset>.zarr/. Returns (cleaned_path, filtered_path)
-    -- either may be None if not present."""
-    candidates = [
-        f"{LEAFGALL_ZARR_BASE}/{dataset}.zarr",
-        f"{LEAFGALL_ZARR_BASE}/backup_4nm/{dataset}.zarr",
-    ]
-    for base in candidates:
-        cleaned = f"{base}/plasmodesmata_cleaned"
-        if os.path.isdir(cleaned):
-            filtered = f"{base}/plasmodesmata_filteredIDs"
-            return cleaned, (filtered if os.path.isdir(filtered) else None)
-    return None, None
-
-
 def make_state(dataset):
     layers = []
 
@@ -103,19 +81,12 @@ def make_state(dataset):
         "shader": make_grayscale_shader(),
     })
 
-    cleaned_path, filtered_path = find_plasmodesmata_zarr(dataset)
-    if cleaned_path:
+    plasmodesmata_path = f"{LEAFGALL_ZARR_BASE}/{dataset}.zarr/plasmodesmata_cleaned"
+    if os.path.isdir(plasmodesmata_path):
         layers.append({
             "type": "segmentation",
-            "source": [{"url": f"zarr://{nrs_to_url(cleaned_path)}"}],
+            "source": [{"url": f"zarr://{nrs_to_url(plasmodesmata_path)}"}],
             "name": "plasmodesmata_cleaned",
-        })
-    if filtered_path:
-        layers.append({
-            "type": "segmentation",
-            "source": [{"url": f"zarr://{nrs_to_url(filtered_path)}"}],
-            "name": "plasmodesmata_filteredIDs",
-            "visible": False,
         })
 
     cell_path = f"{LEAFGALL_ZARR_BASE}/{dataset}.zarr/cell_fixed"
@@ -157,11 +128,8 @@ def make_html(datasets):
         ng_url = f"{NG_VIEWER}/#!{state_url}"
 
         layers_present = ["raw"]
-        cleaned, filtered = find_plasmodesmata_zarr(ds)
-        if cleaned:
+        if os.path.isdir(f"{LEAFGALL_ZARR_BASE}/{ds}.zarr/plasmodesmata_cleaned"):
             layers_present.append("plasmodesmata_cleaned")
-        if filtered:
-            layers_present.append("plasmodesmata_filteredIDs")
         if os.path.isdir(f"{LEAFGALL_ZARR_BASE}/{ds}.zarr/cell_fixed"):
             cell_chip = "cell_fixed"
             if os.path.isdir(f"{MESH_BASE}/{ds}/cell_fixed_neuroglancer/meshes"):
@@ -294,8 +262,7 @@ def make_html(datasets):
             <p class="info">Per-dataset Neuroglancer states overlaying the final plasmodesmata and cell segmentations on raw EM, plus download links to the per-dataset measurement CSVs produced by <code>cellmap-analyze</code>. Modeled on <code>nuclear_pores_dacapo/full_datasets/create_np_original_resolution_neuroglancer.py</code>.</p>
             <ul class="legend">
                 <li><code>raw</code> — EM, multiscale parent group.</li>
-                <li><code>plasmodesmata_cleaned</code> — post-MWS / postprocessed plasmodesmata instance segmentation. Resolved from <code>leaf-gall/&lt;dataset&gt;.zarr/plasmodesmata_cleaned</code> for 8 nm datasets; the 4 nm <code>b</code> datasets' top-level zarrs are empty stubs and the data actually lives under <code>leaf-gall/backup_4nm/&lt;dataset&gt;.zarr/plasmodesmata_cleaned</code> (the b datasets' whole-volume segmentations are at native 4 nm).</li>
-                <li><code>plasmodesmata_filteredIDs</code> — additional postprocessing output keeping only IDs that passed downstream filters (b datasets only).</li>
+                <li><code>plasmodesmata_cleaned</code> — post-MWS / postprocessed plasmodesmata instance segmentation (8 nm datasets only — the 4 nm <code>b</code> datasets' zarrs at <code>leaf-gall/&lt;dataset&gt;.zarr/</code> are empty stubs).</li>
                 <li><code>cell_fixed</code> — proofread cell-mask segmentation. When precomputed multires meshes are available (8 nm datasets only) they are bundled into the same layer via a second source.</li>
             </ul>
             <p class="info"><strong>Downloads.</strong> Each row's CSVs come from <code>/nrs/cellmap/ackermand/cellmap/analysisResults/leaf-gall/&lt;dataset&gt;/</code>. <code>cell_fixed.csv</code> + <code>plasmodesmata_lines_assigned_to_2_nearest_cells.csv</code> are only produced for the 8 nm datasets (cell-aware analysis).</p>

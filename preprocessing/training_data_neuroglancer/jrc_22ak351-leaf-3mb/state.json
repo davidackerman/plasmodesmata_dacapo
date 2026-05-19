@@ -30,161 +30,33 @@
       "visible": false
     },
     {
-      "type": "annotation",
-      "name": "validation_test_rois",
-      "annotations": [
+      "type": "segmentation",
+      "source": [
         {
-          "type": "axis_aligned_bounding_box",
-          "id": "01",
-          "pointA": [
-            1478.0,
-            1285.5,
-            1460.5
-          ],
-          "pointB": [
-            1714.5,
-            1412.0,
-            1728.0
-          ],
-          "description": "01"
-        },
-        {
-          "type": "axis_aligned_bounding_box",
-          "id": "02",
-          "pointA": [
-            1022.5,
-            408.5,
-            1237.5
-          ],
-          "pointB": [
-            1138.0,
-            562.0,
-            1468.0
-          ],
-          "description": "02"
-        },
-        {
-          "type": "axis_aligned_bounding_box",
-          "id": "03",
-          "pointA": [
-            201.5,
-            1701.0,
-            1216.0
-          ],
-          "pointB": [
-            445.5,
-            1792.0,
-            1450.5
-          ],
-          "description": "03"
-        },
-        {
-          "type": "axis_aligned_bounding_box",
-          "id": "04",
-          "pointA": [
-            953.0,
-            816.0,
-            1804.0
-          ],
-          "pointB": [
-            1092.0,
-            951.5,
-            1988.0
-          ],
-          "description": "04"
-        },
-        {
-          "type": "axis_aligned_bounding_box",
-          "id": "05",
-          "pointA": [
-            910.0,
-            1573.5,
-            1217.5
-          ],
-          "pointB": [
-            1019.0,
-            1635.5,
-            1357.5
-          ],
-          "description": "05"
-        },
-        {
-          "type": "axis_aligned_bounding_box",
-          "id": "06",
-          "pointA": [
-            1103.0,
-            1083.0,
-            1155.0
-          ],
-          "pointB": [
-            1174.5,
-            1155.0,
-            1259.5
-          ],
-          "description": "06"
-        },
-        {
-          "type": "axis_aligned_bounding_box",
-          "id": "07",
-          "pointA": [
-            1021.5,
-            480.5,
-            546.0
-          ],
-          "pointB": [
-            1154.0,
-            606.5,
-            700.0
-          ],
-          "description": "07"
-        },
-        {
-          "type": "axis_aligned_bounding_box",
-          "id": "08",
-          "pointA": [
-            906.5,
-            1062.5,
-            1.5
-          ],
-          "pointB": [
-            1269.0,
-            1173.5,
-            150.5
-          ],
-          "description": "08"
-        },
-        {
-          "type": "axis_aligned_bounding_box",
-          "id": "09",
-          "pointA": [
-            1310.5,
-            1173.5,
-            1750.875
-          ],
-          "pointB": [
-            1484.5,
-            1536.0,
-            2120.125
-          ],
-          "description": "09"
-        },
-        {
-          "type": "axis_aligned_bounding_box",
-          "id": "10",
-          "pointA": [
-            293.625,
-            1184.0,
-            314.0
-          ],
-          "pointB": [
-            633.5,
-            1493.375,
-            509.0
-          ],
-          "description": "10"
+          "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/plasmodesmata/annotation_intersection_masks.zarr/jrc_22ak351-leaf-3mb"
         }
       ],
-      "annotationColor": "#ff4444",
+      "name": "annotation_intersection_mask",
+      "visible": false
+    },
+    {
+      "type": "annotation",
+      "source": [
+        {
+          "url": "precomputed://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/plasmodesmata/neuroglancer_annotations/jrc_22ak351-leaf-3mb/removed_annotations"
+        }
+      ],
+      "name": "removed_annotations",
+      "visible": false
+    },
+    {
+      "type": "annotation",
+      "source": [
+        {
+          "url": "precomputed://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/plasmodesmata/neuroglancer_annotations/jrc_22ak351-leaf-3mb/bounding_boxes"
+        }
+      ],
+      "name": "bounding_boxes",
       "visible": true
     }
   ],

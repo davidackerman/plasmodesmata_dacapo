@@ -50,86 +50,53 @@
       "visible": false
     },
     {
-      "type": "annotation",
-      "name": "training_validation_test_rois",
-      "annotations": [
+      "type": "segmentation",
+      "source": [
         {
-          "type": "axis_aligned_bounding_box",
-          "id": "01",
-          "pointA": [
-            14859.0,
-            2615.0,
-            3116.0
-          ],
-          "pointB": [
-            17109.0,
-            5208.0,
-            4577.0
-          ],
-          "description": "01"
-        },
-        {
-          "type": "axis_aligned_bounding_box",
-          "id": "02",
-          "pointA": [
-            11374.0,
-            2153.0,
-            1427.0
-          ],
-          "pointB": [
-            13335.0,
-            4749.25,
-            2845.0
-          ],
-          "description": "02"
-        },
-        {
-          "type": "axis_aligned_bounding_box",
-          "id": "03",
-          "pointA": [
-            9171.0,
-            3203.0,
-            3178.0
-          ],
-          "pointB": [
-            11359.0,
-            3973.0,
-            5152.0
-          ],
-          "description": "03"
-        },
-        {
-          "type": "axis_aligned_bounding_box",
-          "id": "04",
-          "pointA": [
-            3169.0,
-            2996.0,
-            2047.0
-          ],
-          "pointB": [
-            5596.0,
-            4266.0,
-            4024.0
-          ],
-          "description": "04"
-        },
-        {
-          "type": "axis_aligned_bounding_box",
-          "id": "05",
-          "pointA": [
-            2042.0,
-            532.0,
-            3443.0
-          ],
-          "pointB": [
-            3411.0,
-            2360.0,
-            4193.0
-          ],
-          "description": "05"
+          "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/plasmodesmata/annotation_intersection_masks.zarr/jrc_22ak351-leaf-2l"
         }
       ],
-      "annotationColor": "#44b0ff",
+      "name": "annotation_intersection_mask",
+      "visible": false
+    },
+    {
+      "type": "annotation",
+      "source": [
+        {
+          "url": "precomputed://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/leaf-gall/jrc_22ak351-leaf-2l.zarr/annotations/plasmodesmata"
+        }
+      ],
+      "name": "line_annotations",
+      "visible": false
+    },
+    {
+      "type": "annotation",
+      "source": [
+        {
+          "url": "precomputed://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/plasmodesmata/neuroglancer_annotations/jrc_22ak351-leaf-2l/kept_annotations"
+        }
+      ],
+      "name": "kept_annotations",
+      "visible": false
+    },
+    {
+      "type": "annotation",
+      "source": [
+        {
+          "url": "precomputed://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/plasmodesmata/neuroglancer_annotations/jrc_22ak351-leaf-2l/removed_annotations"
+        }
+      ],
+      "name": "removed_annotations",
+      "visible": false
+    },
+    {
+      "type": "annotation",
+      "source": [
+        {
+          "url": "precomputed://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/plasmodesmata/neuroglancer_annotations/jrc_22ak351-leaf-2l/bounding_boxes"
+        }
+      ],
+      "name": "bounding_boxes",
       "visible": true
     }
   ],

@@ -111,10 +111,13 @@
             <ul class="legend">
                 <li><code>raw</code> — EM volume: <code>recon-1/em/fibsem-uint8</code> multiscale group. 8 nm datasets are native at s0; the 4 nm <code>b</code> volumes are native 4 nm at s0 with s1 at 8 nm.</li>
                 <li><code>gt_cylinders</code> — rasterized cylindrical ground-truth: each annotation line drawn as a cylinder. This is what the model was trained against. Source: <code>annotations_as_cylinders.zarr/&lt;dataset&gt;</code>.</li>
+                <li><code>annotation_intersection_mask</code> — loss mask restricting the training loss to the annotated regions. Source: <code>annotation_intersection_masks.zarr/&lt;dataset&gt;</code>.</li>
                 <li><code>plasmodesmata_cleaned</code> — post-MWS / postprocessed plasmodesmata instance segmentation (8 nm datasets only).</li>
                 <li><code>cell_fixed</code> — proofread cell-mask segmentation used for downstream geodesic analysis (8 nm datasets only).</li>
                 <li><code>prediction_mask_dilation_N</code> — dilated cell mask restricting model inference. <code>N</code> is the dilation-iterations setting used in <code>whole_datasets/prediction_yamls/2025-09-15_&lt;dataset&gt;.yaml</code>.</li>
-                <li><code>validation_test_rois</code> / <code>training_validation_test_rois</code> — ROI bounding boxes pulled from each dataset's <code>training_validation_test_roi_info.yaml</code>.</li>
+                <li><code>line_annotations</code> — every annotation line as a single precomputed layer (where available).</li>
+                <li><code>kept_annotations</code> / <code>removed_annotations</code> — same annotations pre-split into "yielded a training point" vs "didn't" (where the precomputed layers exist).</li>
+                <li><code>bounding_boxes</code> — validation/test/training ROI boxes. Prefers the precomputed <code>neuroglancer_annotations/&lt;dataset&gt;/bounding_boxes</code>; falls back to an inline layer built from each dataset's <code>training_validation_test_roi_info.yaml</code> when no precomputed layer exists.</li>
             </ul>
         </header>
         <table>
@@ -129,37 +132,37 @@
             <tbody>
             <tr>
                 <td class="dataset-cell"><a href="https://neuroglancer-demo.appspot.com/#!https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/preprocessing/training_data_neuroglancer/jrc_22ak351-leaf-2l/state.json" target="_blank">jrc_22ak351-leaf-2l</a></td>
-                <td class="layers-cell">raw, gt, plasmodesmata, cell, mask(dil=5), rois(vt=0,tvt=5)</td>
+                <td class="layers-cell">raw, gt_cylinders, loss_mask, plasmodesmata, cell, pred_mask(dil=5), lines, kept, removed, bboxes</td>
                 <td class="dl-cell"><a href="https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-2l" target="_blank">6 CSV(s)</a></td>
                 <td class="dl-cell"><div class="path-cell" title="/nrs/cellmap/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-2l">/nrs/cellmap/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-2l</div></td>
             </tr>
             <tr>
                 <td class="dataset-cell"><a href="https://neuroglancer-demo.appspot.com/#!https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/preprocessing/training_data_neuroglancer/jrc_22ak351-leaf-2lb/state.json" target="_blank">jrc_22ak351-leaf-2lb</a></td>
-                <td class="layers-cell">raw, gt, mask(dil=8), rois(vt=9,tvt=0)</td>
+                <td class="layers-cell">raw, gt_cylinders, loss_mask, pred_mask(dil=8), removed, bboxes</td>
                 <td class="dl-cell"><a href="https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-2lb" target="_blank">5 CSV(s)</a></td>
                 <td class="dl-cell"><div class="path-cell" title="/nrs/cellmap/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-2lb">/nrs/cellmap/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-2lb</div></td>
             </tr>
             <tr>
                 <td class="dataset-cell"><a href="https://neuroglancer-demo.appspot.com/#!https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/preprocessing/training_data_neuroglancer/jrc_22ak351-leaf-3m/state.json" target="_blank">jrc_22ak351-leaf-3m</a></td>
-                <td class="layers-cell">raw, gt, plasmodesmata, cell, mask(dil=4), rois(vt=1,tvt=8)</td>
+                <td class="layers-cell">raw, gt_cylinders, loss_mask, plasmodesmata, cell, pred_mask(dil=4), lines, rois(vt=1,tvt=8)</td>
                 <td class="dl-cell"><a href="https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-3m" target="_blank">15 CSV(s)</a></td>
                 <td class="dl-cell"><div class="path-cell" title="/nrs/cellmap/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-3m">/nrs/cellmap/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-3m</div></td>
             </tr>
             <tr>
                 <td class="dataset-cell"><a href="https://neuroglancer-demo.appspot.com/#!https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/preprocessing/training_data_neuroglancer/jrc_22ak351-leaf-3mb/state.json" target="_blank">jrc_22ak351-leaf-3mb</a></td>
-                <td class="layers-cell">raw, gt, mask(dil=8), rois(vt=10,tvt=0)</td>
+                <td class="layers-cell">raw, gt_cylinders, loss_mask, pred_mask(dil=8), removed, bboxes</td>
                 <td class="dl-cell"><a href="https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-3mb" target="_blank">3 CSV(s)</a></td>
                 <td class="dl-cell"><div class="path-cell" title="/nrs/cellmap/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-3mb">/nrs/cellmap/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-3mb</div></td>
             </tr>
             <tr>
                 <td class="dataset-cell"><a href="https://neuroglancer-demo.appspot.com/#!https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/preprocessing/training_data_neuroglancer/jrc_22ak351-leaf-3r/state.json" target="_blank">jrc_22ak351-leaf-3r</a></td>
-                <td class="layers-cell">raw, gt, plasmodesmata, cell, mask(dil=5), rois(vt=0,tvt=5)</td>
+                <td class="layers-cell">raw, gt_cylinders, loss_mask, plasmodesmata, cell, pred_mask(dil=5), lines, kept, removed, bboxes</td>
                 <td class="dl-cell"><a href="https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-3r" target="_blank">5 CSV(s)</a></td>
                 <td class="dl-cell"><div class="path-cell" title="/nrs/cellmap/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-3r">/nrs/cellmap/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-3r</div></td>
             </tr>
             <tr>
                 <td class="dataset-cell"><a href="https://neuroglancer-demo.appspot.com/#!https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/preprocessing/training_data_neuroglancer/jrc_22ak351-leaf-3rb/state.json" target="_blank">jrc_22ak351-leaf-3rb</a></td>
-                <td class="layers-cell">raw, gt, mask(dil=8), rois(vt=10,tvt=0)</td>
+                <td class="layers-cell">raw, gt_cylinders, loss_mask, pred_mask(dil=8), removed, bboxes</td>
                 <td class="dl-cell"><a href="https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-3rb" target="_blank">5 CSV(s)</a></td>
                 <td class="dl-cell"><div class="path-cell" title="/nrs/cellmap/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-3rb">/nrs/cellmap/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-3rb</div></td>
             </tr>

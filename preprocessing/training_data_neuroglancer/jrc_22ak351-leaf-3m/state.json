@@ -50,6 +50,26 @@
       "visible": false
     },
     {
+      "type": "segmentation",
+      "source": [
+        {
+          "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/plasmodesmata/annotation_intersection_masks.zarr/jrc_22ak351-leaf-3m"
+        }
+      ],
+      "name": "annotation_intersection_mask",
+      "visible": false
+    },
+    {
+      "type": "annotation",
+      "source": [
+        {
+          "url": "precomputed://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/leaf-gall/jrc_22ak351-leaf-3m.zarr/annotations/plasmodesmata"
+        }
+      ],
+      "name": "line_annotations",
+      "visible": false
+    },
+    {
       "type": "annotation",
       "name": "validation_test_rois",
       "annotations": [
@@ -57,14 +77,14 @@
           "type": "axis_aligned_bounding_box",
           "id": "original_small_validation_box",
           "pointA": [
-            27400.0,
+            5300.0,
             2000.0,
-            5300.0
+            27400.0
           ],
           "pointB": [
-            27700.0,
+            5500.0,
             2200.0,
-            5500.0
+            27700.0
           ],
           "description": "original_small_validation_box"
         }
@@ -80,14 +100,14 @@
           "type": "axis_aligned_bounding_box",
           "id": "02",
           "pointA": [
-            10287.0,
+            3088.875,
             2850.875,
-            3088.875
+            10287.0
           ],
           "pointB": [
-            10769.75,
+            5285.875,
             4812.75,
-            5285.875
+            10769.75
           ],
           "description": "02"
         },
@@ -95,14 +115,14 @@
           "type": "axis_aligned_bounding_box",
           "id": "03",
           "pointA": [
-            26147.25,
+            9523.875,
             3127.625,
-            9523.875
+            26147.25
           ],
           "pointB": [
-            28419.25,
+            10871.125,
             4640.125,
-            10871.125
+            28419.25
           ],
           "description": "03"
         },
@@ -110,14 +130,14 @@
           "type": "axis_aligned_bounding_box",
           "id": "06",
           "pointA": [
-            29036.25,
+            2906.875,
             3976.625,
-            2906.875
+            29036.25
           ],
           "pointB": [
-            30532.25,
+            4561.75,
             4811.625,
-            4561.75
+            30532.25
           ],
           "description": "06"
         },
@@ -125,14 +145,14 @@
           "type": "axis_aligned_bounding_box",
           "id": "07",
           "pointA": [
-            27873.5,
+            2811.125,
             3649.25,
-            2811.125
+            27873.5
           ],
           "pointB": [
-            28639.875,
+            3441.125,
             4713.75,
-            3441.125
+            28639.875
           ],
           "description": "07"
         },
@@ -140,9 +160,9 @@
           "type": "axis_aligned_bounding_box",
           "id": "08",
           "pointA": [
-            4375.0,
+            3875.0,
             3125.0,
-            3875.0
+            4375.0
           ],
           "pointB": [
             5375.0,
@@ -155,14 +175,14 @@
           "type": "axis_aligned_bounding_box",
           "id": "09",
           "pointA": [
-            1454.125,
+            3513.125,
             1705.125,
-            3513.125
+            1454.125
           ],
           "pointB": [
-            2626.25,
+            4875.625,
             2781.25,
-            4875.625
+            2626.25
           ],
           "description": "09"
         },
@@ -170,14 +190,14 @@
           "type": "axis_aligned_bounding_box",
           "id": "10",
           "pointA": [
-            18291.375,
+            6896.0,
             2927.125,
-            6896.0
+            18291.375
           ],
           "pointB": [
-            20205.75,
+            8673.875,
             4449.875,
-            8673.875
+            20205.75
           ],
           "description": "10"
         },
@@ -185,14 +205,14 @@
           "type": "axis_aligned_bounding_box",
           "id": "11",
           "pointA": [
-            6974.125,
+            5755.125,
             1657.125,
-            5755.125
+            6974.125
           ],
           "pointB": [
-            9317.75,
+            7206.375,
             3527.875,
-            7206.375
+            9317.75
           ],
           "description": "11"
         }

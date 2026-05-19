@@ -33,9 +33,10 @@ BASE_DIR = "/groups/cellmap/cellmap/ackermand/Programming/plasmodesmata_dacapo"
 ANNOTATIONS_DIR = os.path.join(BASE_DIR, "preprocessing/annotations")
 
 NG_OUTPUT_DIR = os.path.join(BASE_DIR, "preprocessing/training_data_neuroglancer")
-GT_CYLINDERS_ZARR = (
-    "/nrs/cellmap/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr"
-)
+PLASMODESMATA_ROOT = "/nrs/cellmap/ackermand/cellmap/plasmodesmata"
+GT_CYLINDERS_ZARR = f"{PLASMODESMATA_ROOT}/annotations_as_cylinders.zarr"
+INTERSECTION_MASK_ZARR = f"{PLASMODESMATA_ROOT}/annotation_intersection_masks.zarr"
+NG_ANNOTATIONS_BASE = f"{PLASMODESMATA_ROOT}/neuroglancer_annotations"
 LEAFGALL_ZARR_BASE = "/nrs/cellmap/ackermand/cellmap/leaf-gall"
 PREDICTION_MASKS_ZARR = f"{LEAFGALL_ZARR_BASE}/prediction_masks.zarr"
 
@@ -82,7 +83,8 @@ def parse_range(s):
 def roi_annotation_layer(name, rois, color):
     """Build an inline NG annotation layer of axis-aligned bounding boxes
     from a list of {roi_name, x, y, z} dicts. Coordinates are in nm in the
-    YAML; NG voxel size is in m so we divide by 1e-9 * TRAIN_RES_NM."""
+    YAML; NG dimensions are declared in z,y,x order so points are emitted in
+    [z, y, x] voxels at TRAIN_RES_NM."""
     if not rois:
         return None
     annotations = []
@@ -90,12 +92,11 @@ def roi_annotation_layer(name, rois, color):
         xa, xb = parse_range(roi["x"])
         ya, yb = parse_range(roi["y"])
         za, zb = parse_range(roi["z"])
-        # convert nm -> voxels at training resolution
         annotations.append({
             "type": "axis_aligned_bounding_box",
             "id": str(roi.get("roi_name", len(annotations))),
-            "pointA": [xa / TRAIN_RES_NM, ya / TRAIN_RES_NM, za / TRAIN_RES_NM],
-            "pointB": [xb / TRAIN_RES_NM, yb / TRAIN_RES_NM, zb / TRAIN_RES_NM],
+            "pointA": [za / TRAIN_RES_NM, ya / TRAIN_RES_NM, xa / TRAIN_RES_NM],
+            "pointB": [zb / TRAIN_RES_NM, yb / TRAIN_RES_NM, xb / TRAIN_RES_NM],
             "description": str(roi.get("roi_name", "")),
         })
     return {
@@ -165,23 +166,64 @@ def make_state(dataset, dilation_iterations):
             "visible": False,
         })
 
-    rois = load_rois(dataset)
-    if rois:
-        rois_to_split = rois.get("rois_to_split", {})
-        vt_layer = roi_annotation_layer(
-            "validation_test_rois",
-            rois_to_split.get("validation_test", []),
-            "#ff4444",
-        )
-        if vt_layer:
-            layers.append(vt_layer)
-        tvt_layer = roi_annotation_layer(
-            "training_validation_test_rois",
-            rois_to_split.get("training_validation_test", []),
-            "#44b0ff",
-        )
-        if tvt_layer:
-            layers.append(tvt_layer)
+    intersection_mask_path = f"{INTERSECTION_MASK_ZARR}/{dataset}"
+    if os.path.isdir(intersection_mask_path):
+        layers.append({
+            "type": "segmentation",
+            "source": [{"url": f"zarr://{nrs_to_url(intersection_mask_path)}"}],
+            "name": "annotation_intersection_mask",
+            "visible": False,
+        })
+
+    # Precomputed annotation layers (analog of nuclear_pores neuroglancer_annotations)
+    line_annot_path = f"{LEAFGALL_ZARR_BASE}/{dataset}.zarr/annotations/plasmodesmata"
+    if os.path.isdir(line_annot_path):
+        layers.append({
+            "type": "annotation",
+            "source": [{"url": f"precomputed://{nrs_to_url(line_annot_path)}"}],
+            "name": "line_annotations",
+            "visible": False,
+        })
+
+    for name in ("kept_annotations", "removed_annotations"):
+        path = f"{NG_ANNOTATIONS_BASE}/{dataset}/{name}"
+        if not os.path.isdir(path):
+            continue
+        layers.append({
+            "type": "annotation",
+            "source": [{"url": f"precomputed://{nrs_to_url(path)}"}],
+            "name": name,
+            "visible": False,
+        })
+
+    # ROI bounding boxes: prefer the precomputed layer when it exists,
+    # otherwise emit an inline annotation layer from the ROI YAML.
+    bb_path = f"{NG_ANNOTATIONS_BASE}/{dataset}/bounding_boxes"
+    if os.path.isdir(bb_path):
+        layers.append({
+            "type": "annotation",
+            "source": [{"url": f"precomputed://{nrs_to_url(bb_path)}"}],
+            "name": "bounding_boxes",
+            "visible": True,
+        })
+    else:
+        rois = load_rois(dataset)
+        if rois:
+            rois_to_split = rois.get("rois_to_split", {})
+            vt_layer = roi_annotation_layer(
+                "validation_test_rois",
+                rois_to_split.get("validation_test", []),
+                "#ff4444",
+            )
+            if vt_layer:
+                layers.append(vt_layer)
+            tvt_layer = roi_annotation_layer(
+                "training_validation_test_rois",
+                rois_to_split.get("training_validation_test", []),
+                "#44b0ff",
+            )
+            if tvt_layer:
+                layers.append(tvt_layer)
 
     return {
         "layers": layers,
@@ -225,7 +267,9 @@ def make_html(datasets):
 
         layers_present = ["raw"]
         if os.path.isdir(f"{GT_CYLINDERS_ZARR}/{ds}"):
-            layers_present.append("gt")
+            layers_present.append("gt_cylinders")
+        if os.path.isdir(f"{INTERSECTION_MASK_ZARR}/{ds}"):
+            layers_present.append("loss_mask")
         if os.path.isdir(f"{LEAFGALL_ZARR_BASE}/{ds}.zarr/plasmodesmata_cleaned"):
             layers_present.append("plasmodesmata")
         if os.path.isdir(f"{LEAFGALL_ZARR_BASE}/{ds}.zarr/cell_fixed"):
@@ -233,10 +277,18 @@ def make_html(datasets):
         if os.path.isdir(
             f"{PREDICTION_MASKS_ZARR}/dilation_iterations_{cfg['dilation_iterations']}_{ds}"
         ):
-            layers_present.append(f"mask(dil={cfg['dilation_iterations']})")
-        n_vt, n_tvt = count_rois(ds)
-        if n_vt or n_tvt:
-            layers_present.append(f"rois(vt={n_vt},tvt={n_tvt})")
+            layers_present.append(f"pred_mask(dil={cfg['dilation_iterations']})")
+        if os.path.isdir(f"{LEAFGALL_ZARR_BASE}/{ds}.zarr/annotations/plasmodesmata"):
+            layers_present.append("lines")
+        for name in ("kept_annotations", "removed_annotations"):
+            if os.path.isdir(f"{NG_ANNOTATIONS_BASE}/{ds}/{name}"):
+                layers_present.append(name.split("_")[0])
+        if os.path.isdir(f"{NG_ANNOTATIONS_BASE}/{ds}/bounding_boxes"):
+            layers_present.append("bboxes")
+        else:
+            n_vt, n_tvt = count_rois(ds)
+            if n_vt or n_tvt:
+                layers_present.append(f"rois(vt={n_vt},tvt={n_tvt})")
         layers_str = ", ".join(layers_present)
 
         n_csvs = count_annotation_csvs(ds)
@@ -375,10 +427,13 @@ def make_html(datasets):
             <ul class="legend">
                 <li><code>raw</code> — EM volume: <code>recon-1/em/fibsem-uint8</code> multiscale group. 8 nm datasets are native at s0; the 4 nm <code>b</code> volumes are native 4 nm at s0 with s1 at 8 nm.</li>
                 <li><code>gt_cylinders</code> — rasterized cylindrical ground-truth: each annotation line drawn as a cylinder. This is what the model was trained against. Source: <code>annotations_as_cylinders.zarr/&lt;dataset&gt;</code>.</li>
+                <li><code>annotation_intersection_mask</code> — loss mask restricting the training loss to the annotated regions. Source: <code>annotation_intersection_masks.zarr/&lt;dataset&gt;</code>.</li>
                 <li><code>plasmodesmata_cleaned</code> — post-MWS / postprocessed plasmodesmata instance segmentation (8 nm datasets only).</li>
                 <li><code>cell_fixed</code> — proofread cell-mask segmentation used for downstream geodesic analysis (8 nm datasets only).</li>
                 <li><code>prediction_mask_dilation_N</code> — dilated cell mask restricting model inference. <code>N</code> is the dilation-iterations setting used in <code>whole_datasets/prediction_yamls/2025-09-15_&lt;dataset&gt;.yaml</code>.</li>
-                <li><code>validation_test_rois</code> / <code>training_validation_test_rois</code> — ROI bounding boxes pulled from each dataset's <code>training_validation_test_roi_info.yaml</code>.</li>
+                <li><code>line_annotations</code> — every annotation line as a single precomputed layer (where available).</li>
+                <li><code>kept_annotations</code> / <code>removed_annotations</code> — same annotations pre-split into "yielded a training point" vs "didn't" (where the precomputed layers exist).</li>
+                <li><code>bounding_boxes</code> — validation/test/training ROI boxes. Prefers the precomputed <code>neuroglancer_annotations/&lt;dataset&gt;/bounding_boxes</code>; falls back to an inline layer built from each dataset's <code>training_validation_test_roi_info.yaml</code> when no precomputed layer exists.</li>
             </ul>
         </header>
         <table>

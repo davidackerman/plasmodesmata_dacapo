@@ -9,6 +9,15 @@
       ],
       "name": "raw",
       "shader": "#uicontrol invlerp normalized(range=[0, 255], window=[0, 255])\nvoid main() { emitGrayscale(normalized()); }"
+    },
+    {
+      "type": "segmentation",
+      "source": [
+        {
+          "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/data/jrc_22ak351-leaf-3mb/jrc_22ak351-leaf-3mb.zarr/recon-1/labels/inference/segmentations/pd"
+        }
+      ],
+      "name": "plasmodesmata"
     }
   ],
   "dimensions": {

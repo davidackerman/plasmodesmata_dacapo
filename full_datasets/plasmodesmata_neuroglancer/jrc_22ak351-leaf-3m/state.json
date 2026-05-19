@@ -17,7 +17,7 @@
           "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/leaf-gall/jrc_22ak351-leaf-3m.zarr/plasmodesmata_cleaned"
         }
       ],
-      "name": "plasmodesmata_cleaned"
+      "name": "plasmodesmata"
     },
     {
       "type": "segmentation",

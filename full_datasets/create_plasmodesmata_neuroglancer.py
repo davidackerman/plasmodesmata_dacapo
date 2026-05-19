@@ -5,7 +5,12 @@ plasmodesmata final whole-dataset results. Models the structure of
 
 Per dataset, the state shows:
   - raw EM (multiscale parent group)
-  - plasmodesmata_cleaned: post-MWS / postprocessed instance segmentation
+  - plasmodesmata: post-MWS / postprocessed instance segmentation. Resolved
+    from /nrs/cellmap/data/<dataset>/<dataset>.zarr/recon-1/labels/inference/
+    segmentations/pd when present (the OpenOrganelle-style final location;
+    currently the b datasets), falling back to leaf-gall/<dataset>.zarr/
+    plasmodesmata_cleaned for the non-b datasets that haven't been moved
+    yet.
   - cell_fixed: proofread cell-mask segmentation + precomputed multires meshes
     (the segmentation zarr and the precomputed mesh dir are bundled in the
     same layer via two sources)
@@ -70,6 +75,21 @@ def make_grayscale_shader(cmin=0, cmax=255):
     )
 
 
+def find_plasmodesmata_zarr(dataset):
+    """Return the multiscale-parent path to the plasmodesmata segmentation,
+    or None. Prefers the OpenOrganelle-style final location (used currently
+    for the b datasets) and falls back to the leaf-gall working path used
+    by the 8 nm datasets."""
+    candidates = [
+        f"/nrs/cellmap/data/{dataset}/{dataset}.zarr/recon-1/labels/inference/segmentations/pd",
+        f"{LEAFGALL_ZARR_BASE}/{dataset}.zarr/plasmodesmata_cleaned",
+    ]
+    for p in candidates:
+        if os.path.isdir(p):
+            return p
+    return None
+
+
 def make_state(dataset):
     layers = []
 
@@ -81,12 +101,12 @@ def make_state(dataset):
         "shader": make_grayscale_shader(),
     })
 
-    plasmodesmata_path = f"{LEAFGALL_ZARR_BASE}/{dataset}.zarr/plasmodesmata_cleaned"
-    if os.path.isdir(plasmodesmata_path):
+    plasmodesmata_path = find_plasmodesmata_zarr(dataset)
+    if plasmodesmata_path:
         layers.append({
             "type": "segmentation",
             "source": [{"url": f"zarr://{nrs_to_url(plasmodesmata_path)}"}],
-            "name": "plasmodesmata_cleaned",
+            "name": "plasmodesmata",
         })
 
     cell_path = f"{LEAFGALL_ZARR_BASE}/{dataset}.zarr/cell_fixed"
@@ -128,8 +148,8 @@ def make_html(datasets):
         ng_url = f"{NG_VIEWER}/#!{state_url}"
 
         layers_present = ["raw"]
-        if os.path.isdir(f"{LEAFGALL_ZARR_BASE}/{ds}.zarr/plasmodesmata_cleaned"):
-            layers_present.append("plasmodesmata_cleaned")
+        if find_plasmodesmata_zarr(ds):
+            layers_present.append("plasmodesmata")
         if os.path.isdir(f"{LEAFGALL_ZARR_BASE}/{ds}.zarr/cell_fixed"):
             cell_chip = "cell_fixed"
             if os.path.isdir(f"{MESH_BASE}/{ds}/cell_fixed_neuroglancer/meshes"):
@@ -262,7 +282,7 @@ def make_html(datasets):
             <p class="info">Per-dataset Neuroglancer states overlaying the final plasmodesmata and cell segmentations on raw EM, plus download links to the per-dataset measurement CSVs produced by <code>cellmap-analyze</code>. Modeled on <code>nuclear_pores_dacapo/full_datasets/create_np_original_resolution_neuroglancer.py</code>.</p>
             <ul class="legend">
                 <li><code>raw</code> — EM, multiscale parent group.</li>
-                <li><code>plasmodesmata_cleaned</code> — post-MWS / postprocessed plasmodesmata instance segmentation (8 nm datasets only — the 4 nm <code>b</code> datasets' zarrs at <code>leaf-gall/&lt;dataset&gt;.zarr/</code> are empty stubs).</li>
+                <li><code>plasmodesmata</code> — post-MWS / postprocessed plasmodesmata instance segmentation. Resolved from <code>/nrs/cellmap/data/&lt;dataset&gt;/&lt;dataset&gt;.zarr/recon-1/labels/inference/segmentations/pd</code> when present (OpenOrganelle-style final location, currently the b datasets); otherwise from <code>leaf-gall/&lt;dataset&gt;.zarr/plasmodesmata_cleaned</code> (the non-b datasets that haven't been moved yet).</li>
                 <li><code>cell_fixed</code> — proofread cell-mask segmentation. When precomputed multires meshes are available (8 nm datasets only) they are bundled into the same layer via a second source.</li>
             </ul>
             <p class="info"><strong>Downloads.</strong> Each row's CSVs come from <code>/nrs/cellmap/ackermand/cellmap/analysisResults/leaf-gall/&lt;dataset&gt;/</code>. <code>cell_fixed.csv</code> + <code>plasmodesmata_lines_assigned_to_2_nearest_cells.csv</code> are only produced for the 8 nm datasets (cell-aware analysis).</p>

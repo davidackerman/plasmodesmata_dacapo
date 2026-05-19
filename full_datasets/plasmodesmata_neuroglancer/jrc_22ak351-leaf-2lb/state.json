@@ -9,6 +9,25 @@
       ],
       "name": "raw",
       "shader": "#uicontrol invlerp normalized(range=[0, 255], window=[0, 255])\nvoid main() { emitGrayscale(normalized()); }"
+    },
+    {
+      "type": "segmentation",
+      "source": [
+        {
+          "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/leaf-gall/backup_4nm/jrc_22ak351-leaf-2lb.zarr/plasmodesmata_cleaned"
+        }
+      ],
+      "name": "plasmodesmata_cleaned"
+    },
+    {
+      "type": "segmentation",
+      "source": [
+        {
+          "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/leaf-gall/backup_4nm/jrc_22ak351-leaf-2lb.zarr/plasmodesmata_filteredIDs"
+        }
+      ],
+      "name": "plasmodesmata_filteredIDs",
+      "visible": false
     }
   ],
   "dimensions": {

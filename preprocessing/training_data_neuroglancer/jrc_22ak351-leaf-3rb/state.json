@@ -1,0 +1,206 @@
+{
+  "layers": [
+    {
+      "type": "image",
+      "source": [
+        {
+          "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/data/jrc_22ak351-leaf-3rb/jrc_22ak351-leaf-3rb.zarr/recon-1/em/fibsem-uint8/s1"
+        }
+      ],
+      "name": "raw",
+      "shader": "#uicontrol invlerp normalized(range=[0, 255], window=[0, 255])\nvoid main() { emitGrayscale(normalized()); }"
+    },
+    {
+      "type": "segmentation",
+      "source": [
+        {
+          "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-3rb/s0"
+        }
+      ],
+      "name": "gt_cylinders"
+    },
+    {
+      "type": "segmentation",
+      "source": [
+        {
+          "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/leaf-gall/prediction_masks.zarr/dilation_iterations_8_jrc_22ak351-leaf-3rb/s0"
+        }
+      ],
+      "name": "prediction_mask_dilation_8",
+      "visible": false
+    },
+    {
+      "type": "annotation",
+      "name": "validation_test_rois",
+      "annotations": [
+        {
+          "type": "axis_aligned_bounding_box",
+          "id": "01",
+          "pointA": [
+            280.25,
+            1187.625,
+            1253.0
+          ],
+          "pointB": [
+            599.375,
+            1378.75,
+            1528.25
+          ],
+          "description": "01"
+        },
+        {
+          "type": "axis_aligned_bounding_box",
+          "id": "02",
+          "pointA": [
+            1146.5,
+            1682.625,
+            1187.75
+          ],
+          "pointB": [
+            1490.375,
+            1947.875,
+            1393.75
+          ],
+          "description": "02"
+        },
+        {
+          "type": "axis_aligned_bounding_box",
+          "id": "03",
+          "pointA": [
+            799.625,
+            1125.875,
+            942.25
+          ],
+          "pointB": [
+            1131.375,
+            1388.125,
+            1182.75
+          ],
+          "description": "03"
+        },
+        {
+          "type": "axis_aligned_bounding_box",
+          "id": "04",
+          "pointA": [
+            783.875,
+            1621.875,
+            551.25
+          ],
+          "pointB": [
+            1233.125,
+            1866.125,
+            710.25
+          ],
+          "description": "04"
+        },
+        {
+          "type": "axis_aligned_bounding_box",
+          "id": "05",
+          "pointA": [
+            1556.125,
+            637.625,
+            391.25
+          ],
+          "pointB": [
+            1753.625,
+            915.25,
+            557.25
+          ],
+          "description": "05"
+        },
+        {
+          "type": "axis_aligned_bounding_box",
+          "id": "06",
+          "pointA": [
+            636.125,
+            596.75,
+            2223.25
+          ],
+          "pointB": [
+            946.125,
+            792.5,
+            2460.25
+          ],
+          "description": "06"
+        },
+        {
+          "type": "axis_aligned_bounding_box",
+          "id": "07",
+          "pointA": [
+            1009.25,
+            1577.375,
+            2177.0
+          ],
+          "pointB": [
+            1229.25,
+            1810.625,
+            2348.0
+          ],
+          "description": "07"
+        },
+        {
+          "type": "axis_aligned_bounding_box",
+          "id": "08",
+          "pointA": [
+            1479.25,
+            115.625,
+            588.25
+          ],
+          "pointB": [
+            1651.0,
+            261.625,
+            885.75
+          ],
+          "description": "08"
+        },
+        {
+          "type": "axis_aligned_bounding_box",
+          "id": "09",
+          "pointA": [
+            1301.875,
+            367.875,
+            2547.5
+          ],
+          "pointB": [
+            1748.75,
+            666.125,
+            2720.5
+          ],
+          "description": "09"
+        },
+        {
+          "type": "axis_aligned_bounding_box",
+          "id": "10",
+          "pointA": [
+            72.875,
+            1716.375,
+            214.75
+          ],
+          "pointB": [
+            515.25,
+            1867.375,
+            659.125
+          ],
+          "description": "10"
+        }
+      ],
+      "annotationColor": "#ff4444",
+      "visible": true
+    }
+  ],
+  "dimensions": {
+    "z": [
+      8e-09,
+      "m"
+    ],
+    "y": [
+      8e-09,
+      "m"
+    ],
+    "x": [
+      8e-09,
+      "m"
+    ]
+  },
+  "showSlices": false
+}

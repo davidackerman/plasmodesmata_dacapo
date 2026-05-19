@@ -1,0 +1,151 @@
+{
+  "layers": [
+    {
+      "type": "image",
+      "source": [
+        {
+          "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/data/jrc_22ak351-leaf-2l/jrc_22ak351-leaf-2l.zarr/recon-1/em/fibsem-uint8/s0"
+        }
+      ],
+      "name": "raw",
+      "shader": "#uicontrol invlerp normalized(range=[0, 255], window=[0, 255])\nvoid main() { emitGrayscale(normalized()); }"
+    },
+    {
+      "type": "segmentation",
+      "source": [
+        {
+          "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-2l/s0"
+        }
+      ],
+      "name": "gt_cylinders"
+    },
+    {
+      "type": "segmentation",
+      "source": [
+        {
+          "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/leaf-gall/jrc_22ak351-leaf-2l.zarr/plasmodesmata_cleaned/s0"
+        }
+      ],
+      "name": "plasmodesmata_cleaned",
+      "visible": false
+    },
+    {
+      "type": "segmentation",
+      "source": [
+        {
+          "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/leaf-gall/jrc_22ak351-leaf-2l.zarr/cell_fixed/s0"
+        }
+      ],
+      "name": "cell_fixed",
+      "visible": false
+    },
+    {
+      "type": "segmentation",
+      "source": [
+        {
+          "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/leaf-gall/prediction_masks.zarr/dilation_iterations_5_jrc_22ak351-leaf-2l/s0"
+        }
+      ],
+      "name": "prediction_mask_dilation_5",
+      "visible": false
+    },
+    {
+      "type": "annotation",
+      "name": "training_validation_test_rois",
+      "annotations": [
+        {
+          "type": "axis_aligned_bounding_box",
+          "id": "01",
+          "pointA": [
+            14859.0,
+            2615.0,
+            3116.0
+          ],
+          "pointB": [
+            17109.0,
+            5208.0,
+            4577.0
+          ],
+          "description": "01"
+        },
+        {
+          "type": "axis_aligned_bounding_box",
+          "id": "02",
+          "pointA": [
+            11374.0,
+            2153.0,
+            1427.0
+          ],
+          "pointB": [
+            13335.0,
+            4749.25,
+            2845.0
+          ],
+          "description": "02"
+        },
+        {
+          "type": "axis_aligned_bounding_box",
+          "id": "03",
+          "pointA": [
+            9171.0,
+            3203.0,
+            3178.0
+          ],
+          "pointB": [
+            11359.0,
+            3973.0,
+            5152.0
+          ],
+          "description": "03"
+        },
+        {
+          "type": "axis_aligned_bounding_box",
+          "id": "04",
+          "pointA": [
+            3169.0,
+            2996.0,
+            2047.0
+          ],
+          "pointB": [
+            5596.0,
+            4266.0,
+            4024.0
+          ],
+          "description": "04"
+        },
+        {
+          "type": "axis_aligned_bounding_box",
+          "id": "05",
+          "pointA": [
+            2042.0,
+            532.0,
+            3443.0
+          ],
+          "pointB": [
+            3411.0,
+            2360.0,
+            4193.0
+          ],
+          "description": "05"
+        }
+      ],
+      "annotationColor": "#44b0ff",
+      "visible": true
+    }
+  ],
+  "dimensions": {
+    "z": [
+      8e-09,
+      "m"
+    ],
+    "y": [
+      8e-09,
+      "m"
+    ],
+    "x": [
+      8e-09,
+      "m"
+    ]
+  },
+  "showSlices": false
+}

@@ -27,6 +27,7 @@ Other helpers in this dir:
 - `create_masks.py`, `fix_cell_segmentations.py`, `relabel_cell_masks_for_annotating.py` — mask preparation.
 - `image_data_interface.py` — tensorstore-backed zarr/n5 reader.
 - Per-dataset `*.py` and `*.yaml` driver scripts.
+- [`create_training_data_neuroglancer.py`](preprocessing/create_training_data_neuroglancer.py) — emits per-dataset Neuroglancer `state.json` files plus an `index.html` listing all six datasets with their raw EM, rasterized cylindrical GT, plasmodesmata + cell segmentations, prediction-mask, and ROI bounding boxes. Output lands at [`preprocessing/training_data_neuroglancer/index.html`](preprocessing/training_data_neuroglancer/index.html) (served at `https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/preprocessing/training_data_neuroglancer/index.html`). Modeled on `nuclear_pores_dacapo/preprocessing/create_training_data_neuroglancer.py`.
 
 ## 2. Training / validation / test — [validation_and_test/](validation_and_test/)
 

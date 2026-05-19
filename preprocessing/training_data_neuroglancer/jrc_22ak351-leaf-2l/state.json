@@ -4,7 +4,7 @@
       "type": "image",
       "source": [
         {
-          "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/data/jrc_22ak351-leaf-2l/jrc_22ak351-leaf-2l.zarr/recon-1/em/fibsem-uint8/s0"
+          "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/data/jrc_22ak351-leaf-2l/jrc_22ak351-leaf-2l.zarr/recon-1/em/fibsem-uint8"
         }
       ],
       "name": "raw",
@@ -14,7 +14,7 @@
       "type": "segmentation",
       "source": [
         {
-          "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-2l/s0"
+          "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-2l"
         }
       ],
       "name": "gt_cylinders"
@@ -23,7 +23,7 @@
       "type": "segmentation",
       "source": [
         {
-          "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/leaf-gall/jrc_22ak351-leaf-2l.zarr/plasmodesmata_cleaned/s0"
+          "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/leaf-gall/jrc_22ak351-leaf-2l.zarr/plasmodesmata_cleaned"
         }
       ],
       "name": "plasmodesmata_cleaned",
@@ -33,7 +33,7 @@
       "type": "segmentation",
       "source": [
         {
-          "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/leaf-gall/jrc_22ak351-leaf-2l.zarr/cell_fixed/s0"
+          "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/leaf-gall/jrc_22ak351-leaf-2l.zarr/cell_fixed"
         }
       ],
       "name": "cell_fixed",
@@ -43,7 +43,7 @@
       "type": "segmentation",
       "source": [
         {
-          "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/leaf-gall/prediction_masks.zarr/dilation_iterations_5_jrc_22ak351-leaf-2l/s0"
+          "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/leaf-gall/prediction_masks.zarr/dilation_iterations_5_jrc_22ak351-leaf-2l"
         }
       ],
       "name": "prediction_mask_dilation_5",

@@ -44,16 +44,17 @@ NG_VIEWER = "https://neuroglancer-demo.appspot.com"
 
 TRAIN_RES_NM = 8.0
 
-# Per-dataset raw EM container + array scale used by the training/inference
-# pipeline. Mirrors the prediction YAMLs in whole_datasets/prediction_yamls/.
-# `scale` is the multiscale level inside the container that lands at 8 nm.
+# Per-dataset prediction-mask dilation. Mirrors the prediction YAMLs in
+# whole_datasets/prediction_yamls/2025-09-15_*.yaml. All source URLs point at
+# the multiscale parent group (not a specific /sN level), so Neuroglancer
+# reads the OME-NGFF axes/transforms and labels axes as z/y/x correctly.
 DATASETS = {
-    "jrc_22ak351-leaf-2l":  {"scale": "s0", "dilation_iterations": 5},
-    "jrc_22ak351-leaf-2lb": {"scale": "s1", "dilation_iterations": 8},
-    "jrc_22ak351-leaf-3m":  {"scale": "s0", "dilation_iterations": 4},
-    "jrc_22ak351-leaf-3mb": {"scale": "s1", "dilation_iterations": 8},
-    "jrc_22ak351-leaf-3r":  {"scale": "s0", "dilation_iterations": 5},
-    "jrc_22ak351-leaf-3rb": {"scale": "s1", "dilation_iterations": 8},
+    "jrc_22ak351-leaf-2l":  {"dilation_iterations": 5},
+    "jrc_22ak351-leaf-2lb": {"dilation_iterations": 8},
+    "jrc_22ak351-leaf-3m":  {"dilation_iterations": 4},
+    "jrc_22ak351-leaf-3mb": {"dilation_iterations": 8},
+    "jrc_22ak351-leaf-3r":  {"dilation_iterations": 5},
+    "jrc_22ak351-leaf-3rb": {"dilation_iterations": 8},
 }
 
 
@@ -116,18 +117,18 @@ def load_rois(dataset):
         return yaml.safe_load(f)
 
 
-def make_state(dataset, dilation_iterations, raw_scale):
+def make_state(dataset, dilation_iterations):
     layers = []
 
     raw_path = f"/nrs/cellmap/data/{dataset}/{dataset}.zarr/recon-1/em/fibsem-uint8"
     layers.append({
         "type": "image",
-        "source": [{"url": f"zarr://{nrs_to_url(raw_path)}/{raw_scale}"}],
+        "source": [{"url": f"zarr://{nrs_to_url(raw_path)}"}],
         "name": "raw",
         "shader": make_grayscale_shader(),
     })
 
-    gt_path = f"{GT_CYLINDERS_ZARR}/{dataset}/s0"
+    gt_path = f"{GT_CYLINDERS_ZARR}/{dataset}"
     if os.path.isdir(gt_path):
         layers.append({
             "type": "segmentation",
@@ -135,7 +136,7 @@ def make_state(dataset, dilation_iterations, raw_scale):
             "name": "gt_cylinders",
         })
 
-    plasmodesmata_path = f"{LEAFGALL_ZARR_BASE}/{dataset}.zarr/plasmodesmata_cleaned/s0"
+    plasmodesmata_path = f"{LEAFGALL_ZARR_BASE}/{dataset}.zarr/plasmodesmata_cleaned"
     if os.path.isdir(plasmodesmata_path):
         layers.append({
             "type": "segmentation",
@@ -144,7 +145,7 @@ def make_state(dataset, dilation_iterations, raw_scale):
             "visible": False,
         })
 
-    cell_path = f"{LEAFGALL_ZARR_BASE}/{dataset}.zarr/cell_fixed/s0"
+    cell_path = f"{LEAFGALL_ZARR_BASE}/{dataset}.zarr/cell_fixed"
     if os.path.isdir(cell_path):
         layers.append({
             "type": "segmentation",
@@ -154,7 +155,7 @@ def make_state(dataset, dilation_iterations, raw_scale):
         })
 
     mask_path = (
-        f"{PREDICTION_MASKS_ZARR}/dilation_iterations_{dilation_iterations}_{dataset}/s0"
+        f"{PREDICTION_MASKS_ZARR}/dilation_iterations_{dilation_iterations}_{dataset}"
     )
     if os.path.isdir(mask_path):
         layers.append({
@@ -223,14 +224,14 @@ def make_html(datasets):
         ng_url = f"{NG_VIEWER}/#!{state_url}"
 
         layers_present = ["raw"]
-        if os.path.isdir(f"{GT_CYLINDERS_ZARR}/{ds}/s0"):
+        if os.path.isdir(f"{GT_CYLINDERS_ZARR}/{ds}"):
             layers_present.append("gt")
-        if os.path.isdir(f"{LEAFGALL_ZARR_BASE}/{ds}.zarr/plasmodesmata_cleaned/s0"):
+        if os.path.isdir(f"{LEAFGALL_ZARR_BASE}/{ds}.zarr/plasmodesmata_cleaned"):
             layers_present.append("plasmodesmata")
-        if os.path.isdir(f"{LEAFGALL_ZARR_BASE}/{ds}.zarr/cell_fixed/s0"):
+        if os.path.isdir(f"{LEAFGALL_ZARR_BASE}/{ds}.zarr/cell_fixed"):
             layers_present.append("cell")
         if os.path.isdir(
-            f"{PREDICTION_MASKS_ZARR}/dilation_iterations_{cfg['dilation_iterations']}_{ds}/s0"
+            f"{PREDICTION_MASKS_ZARR}/dilation_iterations_{cfg['dilation_iterations']}_{ds}"
         ):
             layers_present.append(f"mask(dil={cfg['dilation_iterations']})")
         n_vt, n_tvt = count_rois(ds)
@@ -246,7 +247,7 @@ def make_html(datasets):
             if n_csvs else '<span class="no-csv">n/a</span>'
         )
 
-        gt_path = f"{GT_CYLINDERS_ZARR}/{ds}/s0"
+        gt_path = f"{GT_CYLINDERS_ZARR}/{ds}"
         gt_cell = (
             f'<div class="path-cell" title="{gt_path}">{gt_path}</div>'
             if os.path.isdir(gt_path)
@@ -370,9 +371,9 @@ def make_html(datasets):
     <div class="container">
         <header>
             <h1>Plasmodesmata - Training Data</h1>
-            <p class="info">Per-dataset Neuroglancer links and source pointers for the leaf-gall plasmodesmata training data. Six datasets, all viewed at the 8 nm training grid (the 4 nm <code>b</code> volumes are viewed via their <code>s1</code> level).</p>
+            <p class="info">Per-dataset Neuroglancer links and source pointers for the leaf-gall plasmodesmata training data. All sources point at OME-NGFF multiscale parent groups, so Neuroglancer reads the axis labels (z/y/x) and per-scale transforms automatically and picks the appropriate level for the current view.</p>
             <ul class="legend">
-                <li><code>raw</code> — EM fed to the model: <code>recon-1/em/fibsem-uint8/s0</code> for 8 nm datasets, <code>/s1</code> for the 4 nm <code>b</code> variants.</li>
+                <li><code>raw</code> — EM volume: <code>recon-1/em/fibsem-uint8</code> multiscale group. 8 nm datasets are native at s0; the 4 nm <code>b</code> volumes are native 4 nm at s0 with s1 at 8 nm.</li>
                 <li><code>gt_cylinders</code> — rasterized cylindrical ground-truth: each annotation line drawn as a cylinder. This is what the model was trained against. Source: <code>annotations_as_cylinders.zarr/&lt;dataset&gt;</code>.</li>
                 <li><code>plasmodesmata_cleaned</code> — post-MWS / postprocessed plasmodesmata instance segmentation (8 nm datasets only).</li>
                 <li><code>cell_fixed</code> — proofread cell-mask segmentation used for downstream geodesic analysis (8 nm datasets only).</li>
@@ -406,7 +407,7 @@ def main():
         cfg = DATASETS[ds]
         ds_dir = os.path.join(NG_OUTPUT_DIR, ds)
         os.makedirs(ds_dir, exist_ok=True)
-        state = make_state(ds, cfg["dilation_iterations"], cfg["scale"])
+        state = make_state(ds, cfg["dilation_iterations"])
         with open(os.path.join(ds_dir, "state.json"), "w") as f:
             json.dump(state, f, indent=2)
         layer_names = [layer["name"] for layer in state["layers"]]

@@ -1,7 +1,13 @@
-dataset,path
-jrc_22ak351-leaf-2l,/groups/cellmap/cellmap/annotations/amira/jrc_22ak351-leaf-2l/crop350/crop350.zarr/crop350_labels_convert.tif/s0
-jrc_22ak351-leaf-3m,/groups/cellmap/cellmap/annotations/amira/jrc_22ak351-leaf-3m/crop352/crop352.zarr/crop352-cell-s0.to-labelfield-8_bits
-jrc_22ak351-leaf-3r,/groups/cellmap/cellmap/annotations/amira/jrc_22ak351-leaf-3r/crop361/crop361.zarr/crop361_labels_convert.tif/s0
-jrc_22ak351-leaf-2lb,"/groups/cellmap/cellmap/parkg/for Aubrey/2lb_s3.zarr/jrc_22ak351-leaf-2lb_cells"
-jrc_22ak351-leaf-3mb,"/groups/cellmap/cellmap/parkg/for Aubrey/3mb_s3.zarr/3mb-cells-new/s0"
-jrc_22ak351-leaf-3rb,"/groups/cellmap/cellmap/parkg/for Aubrey/3rb_s3.zarr/jrc_22ak351-leaf-3rb_cells"
+stage,dataset,path
+aubrey_corrected,jrc_22ak351-leaf-2l,/groups/cellmap/cellmap/annotations/amira/jrc_22ak351-leaf-2l/crop350/crop350_relabel.tif
+aubrey_corrected,jrc_22ak351-leaf-3m,/groups/cellmap/cellmap/annotations/amira/jrc_22ak351-leaf-3m/crop352/crop352.tif
+aubrey_corrected,jrc_22ak351-leaf-3r,/groups/cellmap/cellmap/annotations/amira/jrc_22ak351-leaf-3r/crop361/crop361_relabel.tif
+aubrey_corrected_filled,jrc_22ak351-leaf-2l,/nrs/cellmap/ackermand/cellmap/leaf-gall/jrc_22ak351-leaf-2l.zarr/cell_fixed/s0
+aubrey_corrected_filled,jrc_22ak351-leaf-3m,/nrs/cellmap/ackermand/cellmap/leaf-gall/jrc_22ak351-leaf-3m.zarr/cell_fixed/s0
+aubrey_corrected_filled,jrc_22ak351-leaf-3r,/nrs/cellmap/ackermand/cellmap/leaf-gall/jrc_22ak351-leaf-3r.zarr/cell_fixed/s0
+final,jrc_22ak351-leaf-2lb,/nrs/cellmap/data/jrc_22ak351-leaf-2lb/jrc_22ak351-leaf-2lb.zarr/recon-1/labels/inference/segmentations/cell/s0
+final,jrc_22ak351-leaf-3mb,/nrs/cellmap/data/jrc_22ak351-leaf-3mb/jrc_22ak351-leaf-3mb.zarr/recon-1/labels/inference/segmentations/cell/s0
+final,jrc_22ak351-leaf-3rb,/nrs/cellmap/data/jrc_22ak351-leaf-3rb/jrc_22ak351-leaf-3rb.zarr/recon-1/labels/inference/segmentations/cell/s0
+accidental_delete,jrc_22ak351-leaf-2lb,"/groups/cellmap/cellmap/parkg/for Aubrey/2lb_s3.zarr/jrc_22ak351-leaf-2lb_cells"
+accidental_delete,jrc_22ak351-leaf-3mb,"/groups/cellmap/cellmap/parkg/for Aubrey/3mb_s3.zarr/jrc_22ak351-leaf-3mb_cells"
+accidental_delete,jrc_22ak351-leaf-3rb,"/groups/cellmap/cellmap/parkg/for Aubrey/3rb_s3.zarr/jrc_22ak351-leaf-3rb_cells"

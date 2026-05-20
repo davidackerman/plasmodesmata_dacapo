@@ -1,0 +1,7 @@
+dataset,path
+jrc_22ak351-leaf-2l,/nrs/cellmap/data/jrc_22ak351-leaf-2l/staging/groundtruth.zarr/crop350/cell/s0
+jrc_22ak351-leaf-3m,/nrs/cellmap/data/jrc_22ak351-leaf-3m/staging/groundtruth.zarr/crop352/cell/s0
+jrc_22ak351-leaf-3r,/nrs/cellmap/data/jrc_22ak351-leaf-3r/staging/groundtruth.zarr/crop361/cell/s0
+jrc_22ak351-leaf-2lb,"/groups/cellmap/cellmap/parkg/for Aubrey/2lb_s3.zarr/jrc_22ak351-leaf-2lb_cells"
+jrc_22ak351-leaf-3mb,"/groups/cellmap/cellmap/parkg/for Aubrey/3mb_s3.zarr/jrc_22ak351-leaf-3mb_cells"
+jrc_22ak351-leaf-3rb,"/groups/cellmap/cellmap/parkg/for Aubrey/3rb_s3.zarr/jrc_22ak351-leaf-3rb_cells"

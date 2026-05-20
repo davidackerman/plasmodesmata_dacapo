@@ -1,0 +1,78 @@
+{
+  "layers": [
+    {
+      "type": "image",
+      "source": [
+        {
+          "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/data/jrc_22ak351-leaf-3mb/jrc_22ak351-leaf-3mb.zarr/recon-1/em/fibsem-uint8"
+        }
+      ],
+      "name": "raw",
+      "shader": "#uicontrol invlerp normalized(range=[0, 255], window=[0, 255])\nvoid main() { emitGrayscale(normalized()); }"
+    },
+    {
+      "type": "segmentation",
+      "source": [
+        {
+          "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-3mb"
+        }
+      ],
+      "name": "gt_cylinders"
+    },
+    {
+      "type": "segmentation",
+      "source": [
+        {
+          "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/leaf-gall/prediction_masks.zarr/dilation_iterations_8_jrc_22ak351-leaf-3mb"
+        }
+      ],
+      "name": "prediction_mask_dilation_8",
+      "visible": false
+    },
+    {
+      "type": "segmentation",
+      "source": [
+        {
+          "url": "zarr://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/plasmodesmata/annotation_intersection_masks.zarr/jrc_22ak351-leaf-3mb"
+        }
+      ],
+      "name": "annotation_intersection_mask",
+      "visible": false
+    },
+    {
+      "type": "annotation",
+      "source": [
+        {
+          "url": "precomputed://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/plasmodesmata/neuroglancer_annotations/jrc_22ak351-leaf-3mb/removed_annotations"
+        }
+      ],
+      "name": "removed_annotations",
+      "visible": false
+    },
+    {
+      "type": "annotation",
+      "source": [
+        {
+          "url": "precomputed://https://cellmap-vm1.int.janelia.org/nrs/ackermand/cellmap/plasmodesmata/neuroglancer_annotations/jrc_22ak351-leaf-3mb/bounding_boxes"
+        }
+      ],
+      "name": "bounding_boxes",
+      "visible": true
+    }
+  ],
+  "dimensions": {
+    "z": [
+      8e-09,
+      "m"
+    ],
+    "y": [
+      8e-09,
+      "m"
+    ],
+    "x": [
+      8e-09,
+      "m"
+    ]
+  },
+  "showSlices": false
+}

@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plasmodesmata - Training Data Neuroglancer Links</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #2d8f5f 0%, #6dd58c 100%);
+            min-height: 100vh;
+            padding: 32px 20px;
+            margin: 0;
+            color: #2d3748;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        header {
+            background: white;
+            border-radius: 12px;
+            padding: 32px 36px;
+            margin-bottom: 24px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+        }
+        h1 {
+            color: #1a202c;
+            margin: 0 0 8px 0;
+            font-size: 1.9em;
+            letter-spacing: -0.5px;
+        }
+        .info { color: #718096; font-size: 0.95em; line-height: 1.5; }
+        .legend {
+            color: #4a5568;
+            font-size: 0.9em;
+            line-height: 1.6;
+            padding-left: 22px;
+            margin: 8px 0 16px 0;
+        }
+        .legend code {
+            background: #edf2f7;
+            padding: 1px 6px;
+            border-radius: 3px;
+            font-family: 'SF Mono', Monaco, Consolas, monospace;
+            font-size: 0.92em;
+            color: #2d3748;
+        }
+        table {
+            width: 100%;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+            border-collapse: collapse;
+            overflow: hidden;
+        }
+        th {
+            background: #f7fafc;
+            padding: 14px 24px;
+            text-align: left;
+            font-weight: 600;
+            color: #4a5568;
+            font-size: 0.85em;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 2px solid #edf2f7;
+            border-right: 1px solid #e2e8f0;
+        }
+        th:last-child { border-right: none; }
+        td {
+            padding: 16px 24px;
+            border-top: 1px solid #edf2f7;
+            border-right: 1px solid #edf2f7;
+            vertical-align: middle;
+        }
+        td:last-child { border-right: none; }
+        tr:hover td { background: #f7fafc; }
+        a { color: #2d8f5f; text-decoration: none; font-weight: 500; }
+        a:hover { text-decoration: underline; }
+        .dataset-cell a { font-size: 1.05em; font-weight: 600; color: #1e6a44; }
+        .layers-cell {
+            font-family: 'SF Mono', Monaco, Consolas, monospace;
+            font-size: 0.82em;
+            color: #4a5568;
+        }
+        .dl-cell {
+            min-width: 280px;
+            font-family: 'SF Mono', Monaco, Consolas, monospace;
+            font-size: 0.85em;
+        }
+        .path-cell {
+            font-size: 0.78em;
+            color: #4a5568;
+            word-break: break-all;
+            line-height: 1.4;
+            padding: 4px 8px;
+            background: #f7fafc;
+            border-radius: 4px;
+            border: 1px solid #e2e8f0;
+        }
+        .no-csv {
+            color: #cbd5e0;
+            font-style: italic;
+            font-size: 0.85em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Plasmodesmata - Training Data</h1>
+            <p class="info">Per-dataset Neuroglancer links and source pointers for the leaf-gall plasmodesmata training data. All sources point at OME-NGFF multiscale parent groups, so Neuroglancer reads the axis labels (z/y/x) and per-scale transforms automatically and picks the appropriate level for the current view.</p>
+            <ul class="legend">
+                <li><code>raw</code> — EM volume: <code>recon-1/em/fibsem-uint8</code> multiscale group. 8 nm datasets are native at s0; the 4 nm <code>b</code> volumes are native 4 nm at s0 with s1 at 8 nm.</li>
+                <li><code>gt_cylinders</code> — rasterized cylindrical ground-truth: each annotation line drawn as a cylinder. This is what the model was trained against. Source: <code>annotations_as_cylinders.zarr/&lt;dataset&gt;</code>.</li>
+                <li><code>annotation_intersection_mask</code> — loss mask restricting the training loss to the annotated regions. Source: <code>annotation_intersection_masks.zarr/&lt;dataset&gt;</code>.</li>
+                <li><code>plasmodesmata_cleaned</code> — post-MWS / postprocessed plasmodesmata instance segmentation (8 nm datasets only).</li>
+                <li><code>cell_fixed</code> — proofread cell-mask segmentation used for downstream geodesic analysis (8 nm datasets only).</li>
+                <li><code>prediction_mask_dilation_N</code> — dilated cell mask restricting model inference. <code>N</code> is the dilation-iterations setting used in <code>whole_datasets/prediction_yamls/2025-09-15_&lt;dataset&gt;.yaml</code>.</li>
+                <li><code>line_annotations</code> — every annotation line as a single precomputed layer (where available).</li>
+                <li><code>kept_annotations</code> / <code>removed_annotations</code> — same annotations pre-split into "yielded a training point" vs "didn't" (where the precomputed layers exist).</li>
+                <li><code>bounding_boxes</code> — validation/test/training ROI boxes. Prefers the precomputed <code>neuroglancer_annotations/&lt;dataset&gt;/bounding_boxes</code>; falls back to an inline layer built from each dataset's <code>training_validation_test_roi_info.yaml</code> when no precomputed layer exists.</li>
+            </ul>
+        </header>
+        <table>
+            <thead>
+                <tr>
+                    <th>Neuroglancer link</th>
+                    <th>Layers present</th>
+                    <th>Annotation CSVs</th>
+                    <th>GT cylinders zarr</th>
+                </tr>
+            </thead>
+            <tbody>
+            <tr>
+                <td class="dataset-cell"><a href="https://neuroglancer-demo.appspot.com/#!https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/preprocessing/training_data_neuroglancer/jrc_22ak351-leaf-2l/state.json" target="_blank">jrc_22ak351-leaf-2l</a></td>
+                <td class="layers-cell">raw, gt_cylinders, loss_mask, plasmodesmata, cell, pred_mask(dil=5), lines, kept, removed, bboxes</td>
+                <td class="dl-cell"><a href="https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-2l" target="_blank">6 CSV(s)</a></td>
+                <td class="dl-cell"><div class="path-cell" title="/nrs/cellmap/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-2l">/nrs/cellmap/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-2l</div></td>
+            </tr>
+            <tr>
+                <td class="dataset-cell"><a href="https://neuroglancer-demo.appspot.com/#!https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/preprocessing/training_data_neuroglancer/jrc_22ak351-leaf-2lb/state.json" target="_blank">jrc_22ak351-leaf-2lb</a></td>
+                <td class="layers-cell">raw, gt_cylinders, loss_mask, pred_mask(dil=8), removed, bboxes</td>
+                <td class="dl-cell"><a href="https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-2lb" target="_blank">5 CSV(s)</a></td>
+                <td class="dl-cell"><div class="path-cell" title="/nrs/cellmap/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-2lb">/nrs/cellmap/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-2lb</div></td>
+            </tr>
+            <tr>
+                <td class="dataset-cell"><a href="https://neuroglancer-demo.appspot.com/#!https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/preprocessing/training_data_neuroglancer/jrc_22ak351-leaf-3m/state.json" target="_blank">jrc_22ak351-leaf-3m</a></td>
+                <td class="layers-cell">raw, gt_cylinders, loss_mask, plasmodesmata, cell, pred_mask(dil=4), lines, rois(vt=1,tvt=8)</td>
+                <td class="dl-cell"><a href="https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-3m" target="_blank">15 CSV(s)</a></td>
+                <td class="dl-cell"><div class="path-cell" title="/nrs/cellmap/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-3m">/nrs/cellmap/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-3m</div></td>
+            </tr>
+            <tr>
+                <td class="dataset-cell"><a href="https://neuroglancer-demo.appspot.com/#!https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/preprocessing/training_data_neuroglancer/jrc_22ak351-leaf-3mb/state.json" target="_blank">jrc_22ak351-leaf-3mb</a></td>
+                <td class="layers-cell">raw, gt_cylinders, loss_mask, pred_mask(dil=8), removed, bboxes</td>
+                <td class="dl-cell"><a href="https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-3mb" target="_blank">3 CSV(s)</a></td>
+                <td class="dl-cell"><div class="path-cell" title="/nrs/cellmap/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-3mb">/nrs/cellmap/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-3mb</div></td>
+            </tr>
+            <tr>
+                <td class="dataset-cell"><a href="https://neuroglancer-demo.appspot.com/#!https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/preprocessing/training_data_neuroglancer/jrc_22ak351-leaf-3r/state.json" target="_blank">jrc_22ak351-leaf-3r</a></td>
+                <td class="layers-cell">raw, gt_cylinders, loss_mask, plasmodesmata, cell, pred_mask(dil=5), lines, kept, removed, bboxes</td>
+                <td class="dl-cell"><a href="https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-3r" target="_blank">5 CSV(s)</a></td>
+                <td class="dl-cell"><div class="path-cell" title="/nrs/cellmap/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-3r">/nrs/cellmap/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-3r</div></td>
+            </tr>
+            <tr>
+                <td class="dataset-cell"><a href="https://neuroglancer-demo.appspot.com/#!https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/preprocessing/training_data_neuroglancer/jrc_22ak351-leaf-3rb/state.json" target="_blank">jrc_22ak351-leaf-3rb</a></td>
+                <td class="layers-cell">raw, gt_cylinders, loss_mask, pred_mask(dil=8), removed, bboxes</td>
+                <td class="dl-cell"><a href="https://cellmap-vm1.int.janelia.org/prfs/ackermand/Programming/plasmodesmata_dacapo/preprocessing/annotations/jrc_22ak351-leaf-3rb" target="_blank">5 CSV(s)</a></td>
+                <td class="dl-cell"><div class="path-cell" title="/nrs/cellmap/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-3rb">/nrs/cellmap/ackermand/cellmap/plasmodesmata/annotations_as_cylinders.zarr/jrc_22ak351-leaf-3rb</div></td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>

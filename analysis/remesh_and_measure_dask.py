@@ -1,16 +1,452 @@
 # %%
+# Batch surface point insertion (by face & edge) using trimesh for projection
+# and Triangle (if available) for fast per-face triangulation.
+# Key improvements over the previous incremental version:
+#   - One global projection pass (trimesh.nearest.on_surface) for all points
+#   - Dedup upfront (against existing vertices and among new points)
+#   - Batch edge processing: split shared edges once using ordered chains
+#   - Per-face re-triangulation in 2D with boundary constraints (Triangle)
+#   - Single mesh rebuild at the end; optional validity checks
+#   - Still returns mapped_indices (one per input) and insertion_counts
+
+import numpy as np
+import trimesh
+from collections import defaultdict
+from pygeodesic import geodesic
+from tqdm import tqdm
+
+# Optional fast 2D constrained triangulation
+try:
+    import triangle as tr  # pip install triangle
+
+    _HAS_TRIANGLE = True
+except Exception:  # pragma: no cover
+    from scipy.spatial import Delaunay  # fallback
+
+    _HAS_TRIANGLE = False
+
+# ---------------------------- exceptions ------------------------------
+
+
+class MeshValidationError(Exception):
+    """Raised when mesh validation fails after point insertion or manipulation."""
+    pass
+
+
+# ---------------------------- helpers ---------------------------------
+
+
+def build_trimesh(vertices, faces):
+    return trimesh.Trimesh(
+        vertices=np.asarray(vertices), faces=np.asarray(faces, dtype=int), process=False
+    )
+
+
+def face_frames(V, F):
+    """Precompute local frames (origin A, ex, ey, normal) per face."""
+    V = np.asarray(V)
+    A = V[F[:, 0]]
+    B = V[F[:, 1]]
+    C = V[F[:, 2]]
+    e0 = B - A
+    n = np.cross(e0, C - A)
+    n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-15)
+    ex = e0 / np.maximum(np.linalg.norm(e0, axis=1, keepdims=True), 1e-15)
+    ey = np.cross(n, ex)
+    return A, ex, ey, n
+
+
+def to_local2(A, ex, ey, P):
+    """Project 3D points P to local 2D coords w.r.t. (A, ex, ey)."""
+    d = P - A
+    x = np.dot(d, ex)
+    y = np.dot(d, ey)
+    return np.stack([x, y], axis=-1)
+
+
+def barycentric_in_face(P, A, B, C):
+    v0, v1, v2 = B - A, C - A, P - A
+    d00, d01, d11 = np.dot(v0, v0), np.dot(v0, v1), np.dot(v1, v1)
+    d20, d21 = np.dot(v2, v0), np.dot(v2, v1)
+    denom = d00 * d11 - d01 * d01
+    if abs(denom) < 1e-15:
+        return None
+    v = (d11 * d20 - d01 * d21) / denom
+    w = (d00 * d21 - d01 * d20) / denom
+    u = 1.0 - v - w
+    return u, v, w
+
+
+def remove_degenerate_and_duplicate_faces(vertices, faces, area_tol=1e-14):
+    unique = {}
+    cleaned = []
+    V = np.asarray(vertices)
+    for f in faces:
+        i, j, k = f
+        if i == j or j == k or k == i:
+            continue
+        a, b, c = V[i], V[j], V[k]
+        area2 = np.linalg.norm(np.cross(b - a, c - a))
+        if not np.isfinite(area2) or area2 < area_tol:
+            continue
+        key = tuple(sorted((i, j, k)))
+        if key in unique:
+            continue
+        unique[key] = f
+        cleaned.append(f)
+    return cleaned
+
+
+# ---------------------------- main API --------------------------------
+
+
+def insert_points_into_mesh_batch(
+    mesh: trimesh.Trimesh,
+    new_points,
+    *,
+    tol=1e-8,
+    round_dp=9,
+    use_triangle=True,
+    validate=False,
+):
+    """
+    Batch insert "new_points" onto a triangular surface mesh without incremental splits.
+
+    Steps:
+      1) Project all points to the surface once.
+      2) Snap to existing vertices / shared edges; dedup among new points.
+      3) Build per-edge chains and per-face interior point lists.
+      4) Re-triangulate each affected face in 2D (Triangle if available; SciPy fallback).
+
+    Returns:
+      updated_vertices (N',3), updated_faces (M',3),
+      insertion_counts {vertex_index: count}, mapped_indices [len(new_points)].
+    """
+    V = mesh.vertices.tolist()
+    F = mesh.faces.astype(int)
+    nV0 = len(V)
+
+    # Projection in one shot
+    new_points = np.asarray(new_points, dtype=float)
+    closest, dists, fids = mesh.nearest.on_surface(new_points)
+
+    # Precompute frames per face
+    A_all, ex_all, ey_all, n_all = face_frames(V, F)
+
+    # Dedup map (existing verts)
+    key_of = lambda p: tuple(np.round(p, round_dp))
+    coord_to_index = {key_of(v): i for i, v in enumerate(V)}
+
+    insertion_counts = defaultdict(int)
+    mapped_indices = [None] * len(new_points)
+
+    # Edge bins: frozenset(i,j) -> list of (t, global_idx_placeholder, input_ids)
+    edge_bins = defaultdict(list)
+    # Face bins: fid -> list of (global_idx_placeholder, input_ids)
+    face_bins = defaultdict(list)
+
+    # Pass 1: classify & assign placeholders (also count duplicates against existing vertices)
+    placeholder_counter = 0
+    placeholder_to_global = {}  # will be filled when we allocate real verts
+
+    for p_i, (P, fid) in enumerate(zip(closest, fids)):
+        fid = int(fid)
+        A, ex, ey = A_all[fid], ex_all[fid], ey_all[fid]
+        i0, i1, i2 = F[fid]
+        A3, B3, C3 = np.asarray(V[i0]), np.asarray(V[i1]), np.asarray(V[i2])
+        bary = barycentric_in_face(P, A3, B3, C3)
+        if bary is None:
+            raise MeshValidationError(
+                f"Cannot compute barycentric coordinates for point {p_i} in face {fid}. "
+                f"Face vertices: {F[fid]} at positions {A3}, {B3}, {C3}. "
+                f"This indicates a degenerate triangle (zero area or collinear vertices). "
+                f"Check mesh quality before point insertion."
+            )
+        u, v, w = bary
+
+        # Vertex snap
+        if u > 1 - tol:
+            mapped_indices[p_i] = i0
+            insertion_counts[i0] += 1
+            continue
+        if v > 1 - tol:
+            mapped_indices[p_i] = i1
+            insertion_counts[i1] += 1
+            continue
+        if w > 1 - tol:
+            mapped_indices[p_i] = i2
+            insertion_counts[i2] += 1
+            continue
+
+        # Edge snap
+        if abs(u) < tol:
+            # edge i1-i2, param from i1
+            e0 = np.asarray(V[i2]) - np.asarray(V[i1])
+            t = np.clip(
+                np.dot(P - np.asarray(V[i1]), e0) / (np.dot(e0, e0) + 1e-30), 0.0, 1.0
+            )
+            P = (1 - t) * np.asarray(V[i1]) + t * np.asarray(V[i2])
+            k = key_of(P)
+            if k in coord_to_index:
+                idx = coord_to_index[k]
+                mapped_indices[p_i] = idx
+                insertion_counts[idx] += 1
+                continue
+            ph = placeholder_counter
+            placeholder_counter += 1
+            edge_bins[frozenset((i1, i2))].append((t, ph, [p_i]))
+            mapped_indices[p_i] = ph
+            continue
+        if abs(v) < tol:
+            e0 = np.asarray(V[i0]) - np.asarray(V[i2])
+            t = np.clip(
+                np.dot(P - np.asarray(V[i2]), e0) / (np.dot(e0, e0) + 1e-30), 0.0, 1.0
+            )
+            P = (1 - t) * np.asarray(V[i2]) + t * np.asarray(V[i0])
+            k = key_of(P)
+            if k in coord_to_index:
+                idx = coord_to_index[k]
+                mapped_indices[p_i] = idx
+                insertion_counts[idx] += 1
+                continue
+            ph = placeholder_counter
+            placeholder_counter += 1
+            edge_bins[frozenset((i2, i0))].append((t, ph, [p_i]))
+            mapped_indices[p_i] = ph
+            continue
+        if abs(w) < tol:
+            e0 = np.asarray(V[i1]) - np.asarray(V[i0])
+            t = np.clip(
+                np.dot(P - np.asarray(V[i0]), e0) / (np.dot(e0, e0) + 1e-30), 0.0, 1.0
+            )
+            P = (1 - t) * np.asarray(V[i0]) + t * np.asarray(V[i1])
+            k = key_of(P)
+            if k in coord_to_index:
+                idx = coord_to_index[k]
+                mapped_indices[p_i] = idx
+                insertion_counts[idx] += 1
+                continue
+            ph = placeholder_counter
+            placeholder_counter += 1
+            edge_bins[frozenset((i0, i1))].append((t, ph, [p_i]))
+            mapped_indices[p_i] = ph
+            continue
+
+        # Interior point for this face
+        ph = placeholder_counter
+        placeholder_counter += 1
+        face_bins[fid].append((ph, [p_i]))
+        mapped_indices[p_i] = ph
+
+    # Pass 2: allocate real vertices for edge placeholders (sorted along edge, merge near-duplicates)
+    def assign_edge_points(edge_key, chain):
+        nonlocal V
+        # endpoints
+        i, j = tuple(edge_key)
+        Pi, Pj = np.asarray(V[i]), np.asarray(V[j])
+        # sort and merge by t
+        chain.sort(key=lambda x: x[0])
+        merged = []
+        for t, ph, ids in chain:
+            if merged and abs(t - merged[-1][0]) < 1e-9:
+                merged[-1][2].extend(ids)
+            else:
+                merged.append([t, ph, ids])
+        # assign indices
+        for t, ph, ids in merged:
+            P = (1 - t) * Pi + t * Pj
+            k = key_of(P)
+            if k in coord_to_index:
+                gidx = coord_to_index[k]
+            else:
+                gidx = len(V)
+                V.append(tuple(P))
+                coord_to_index[k] = gidx
+            placeholder_to_global[ph] = gidx
+            for p_i in ids:
+                mapped_indices[p_i] = gidx
+                insertion_counts[gidx] += 1
+        # return local order (including endpoints) for this edge for face polygon building
+        return i, [placeholder_to_global[ph] for _, ph, _ in merged], j
+
+    edge_order = {}
+    for ekey, chain in edge_bins.items():
+        edge_order[ekey] = assign_edge_points(ekey, chain)
+
+    # Pass 3: allocate real vertices for interior placeholders
+    for fid, items in face_bins.items():
+        for ph, ids in items:
+            # We can use the original projected point from 'closest'; since mapped_indices holds ph,
+            # recover it via any one input id
+            p_i = ids[0]
+            P = closest[p_i]
+            k = key_of(P)
+            if k in coord_to_index:
+                gidx = coord_to_index[k]
+            else:
+                gidx = len(V)
+                V.append(tuple(P))
+                coord_to_index[k] = gidx
+            placeholder_to_global[ph] = gidx
+            for p_i in ids:
+                mapped_indices[p_i] = gidx
+                insertion_counts[gidx] += 1
+
+    # Pass 4: rebuild faces per affected face (respect edge chains)
+    new_faces = []
+    F_list = F.tolist()
+
+    # Helper: local triangulation for a single face
+    def triangulate_face(fid):
+        i0, i1, i2 = F[fid]
+        A, ex, ey, n = A_all[fid], ex_all[fid], ey_all[fid], n_all[fid]
+        # Build boundary vertex sequence with edge points in order
+        seq = []  # list of (global_index, local2D)
+
+        def add_chain(i, j):
+            ekey = frozenset((i, j))
+            if ekey in edge_order:
+                left, mids, right = edge_order[ekey]
+                # orient along (i->j)
+                pts = mids if left == i else list(reversed(mids))
+                return [i] + pts + [j]
+            else:
+                return [i, j]
+
+        boundary = []
+        boundary += add_chain(i0, i1)[:-1]
+        boundary += add_chain(i1, i2)[:-1]
+        boundary += add_chain(i2, i0)[:-1]
+        boundary.append(i0)
+        # interior points for this face
+        interior = [placeholder_to_global[ph] for ph, _ in face_bins.get(fid, [])]
+        # Local 2D coords
+        all_local_ids = []
+        all_local_coords = []
+        id_to_local = {}
+        for g in boundary:
+            if g in id_to_local:
+                continue
+            P = np.asarray(V[g])
+            xy = to_local2(A, ex, ey, P)
+            id_to_local[g] = len(all_local_ids)
+            all_local_ids.append(g)
+            all_local_coords.append(xy)
+        for g in interior:
+            if g in id_to_local:
+                continue
+            P = np.asarray(V[g])
+            xy = to_local2(A, ex, ey, P)
+            id_to_local[g] = len(all_local_ids)
+            all_local_ids.append(g)
+            all_local_coords.append(xy)
+        P2 = np.vstack(all_local_coords)
+        # segments for boundary polygon
+        boundary_loc = [id_to_local[g] for g in boundary]
+        segments = list(zip(boundary_loc[:-1], boundary_loc[1:]))
+        # Triangulate
+        if use_triangle and _HAS_TRIANGLE:
+            data = {"vertices": P2, "segments": np.asarray(segments, dtype=int)}
+            out = tr.triangulate(data, "pQ")  # PSLG, quiet, no Steiner points
+            tris_loc = out.get("triangles", np.empty((0, 3), dtype=int))
+        else:
+            # Fallback: Delaunay, filter by polygon containment via barycentric wrt (i0,i1,i2)
+            dela = Delaunay(P2)
+            tris_loc = dela.simplices
+        # Map to global
+        for a, b, c in tris_loc:
+            ga, gb, gc = all_local_ids[a], all_local_ids[b], all_local_ids[c]
+            new_faces.append([ga, gb, gc])
+
+    # Decide which faces to rebuild: all faces touched by inserts; otherwise keep as-is
+    touched_faces = set(face_bins.keys())
+    for ekey in edge_bins.keys():
+        # faces that use this edge
+        i, j = tuple(ekey)
+        mask = np.any(F == i, axis=1) & np.any(F == j, axis=1)
+        hits = np.where(mask)[0]
+        touched_faces.update(hits.tolist())
+
+    keep_mask = np.ones(len(F_list), dtype=bool)
+    for fid in touched_faces:
+        keep_mask[fid] = False
+    # Keep untouched faces
+    new_faces.extend([F_list[i] for i in range(len(F_list)) if keep_mask[i]])
+
+    # Rebuild touched faces
+    for fid in tqdm(sorted(touched_faces), desc="Triangulate faces"):
+        triangulate_face(fid)
+
+    # Cleanup
+    new_faces = remove_degenerate_and_duplicate_faces(V, new_faces)
+    V = np.asarray(V)
+    F_new = np.asarray(new_faces, dtype=int)
+
+    # ALWAYS validate (not just when validate=True) - reliability over speed
+    updated_mesh = build_trimesh(V, F_new)
+
+    # Basic index validity
+    if F_new.min() < 0 or F_new.max() >= len(V):
+        raise MeshValidationError(
+            f"Invalid vertex indices: min={F_new.min()}, max={F_new.max()}, num_verts={len(V)}"
+        )
+
+    if len(F_new) == 0:
+        raise MeshValidationError("No faces in mesh after insertion")
+
+    # Topology checks - RAISE exceptions instead of warnings
+    if not updated_mesh.is_watertight:
+        raise MeshValidationError(
+            "Mesh is not watertight after point insertion. "
+            "This will cause geodesic distance computation to fail."
+        )
+
+    if not updated_mesh.is_winding_consistent:
+        raise MeshValidationError("Mesh has inconsistent face windings after insertion")
+
+    # Check for unreferenced vertices (indicates bug in insertion algorithm)
+    used_verts = np.unique(F_new)
+    if len(used_verts) < len(V):
+        num_unreferenced = len(V) - len(used_verts)
+        num_added = len(V) - nV0  # nV0 is original vertex count from line 119
+        raise MeshValidationError(
+            f"{num_unreferenced} unreferenced vertices after insertion "
+            f"(created {num_added} new vertices)"
+        )
+
+    # Check mesh is connected (single component)
+    if updated_mesh.body_count > 1:
+        raise MeshValidationError(
+            f"Mesh has {updated_mesh.body_count} disconnected components after insertion. "
+            "Geodesic distances will be infinite between components."
+        )
+
+    # Log successful validation
+    logger.debug(
+        f"Mesh validation passed: {len(V)} vertices, {len(F_new)} faces, "
+        f"watertight={updated_mesh.is_watertight}, components={updated_mesh.body_count}"
+    )
+
+    return V, F_new, dict(insertion_counts), mapped_indices
+
+
+# %%
 import os
+import pickle
 from cellmap_analyze.util import dask_util, io_util
 import logging
 from dataclasses import dataclass
 import trimesh
 import pandas as pd
 import ast
-from remesh import insert_points_into_mesh_original
 import gdist
 import pygeodesic.geodesic as geodesic
 import numpy as np
 import pandas as pd
+import dask.dataframe as dd
+from tqdm import tqdm
+import psutil
+
 
 logger = logging.getLogger(__name__)
 
@@ -30,55 +466,307 @@ class RunProperties:
             self.run_config["num_workers"] = args.num_workers
 
 
-def insert_plasmodesmata_into_mesh(cell_mesh_path, cell_plasmodesmata_coords):
-    """
-    Insert plasmodesmata coordinates into the cell mesh.
-    """
-    # Load the cell mesh
-    cell_mesh = trimesh.load_mesh(cell_mesh_path)
-    cell_mesh.vertices = cell_mesh.vertices[
-        :, ::-1
-    ]  # Ensure vertices are in x,y,z order
+# def insert_plasmodesmata_into_mesh(cell_mesh_path, cell_plasmodesmata_coords):
+#     """
+#     Insert plasmodesmata coordinates into the cell mesh.
+#     """
+#     # Load the cell mesh
+#     cell_mesh = trimesh.load_mesh(cell_mesh_path)
+#     cell_mesh.vertices = cell_mesh.vertices[
+#         :, ::-1
+#     ]  # Ensure vertices are in x,y,z order
 
-    # Insert plasmodesmata coordinates into the mesh
-    updated_vertices, updated_faces = insert_points_into_mesh_original(
-        cell_mesh, cell_plasmodesmata_coords
-    )
-    cell_plasmodesmata_indices = list(
-        range(
-            len(cell_mesh.vertices),
-            len(cell_mesh.vertices) + len(cell_plasmodesmata_coords),
+#     # Insert plasmodesmata coordinates into the mesh
+#     updated_vertices, updated_faces = insert_points_into_mesh_original(
+#         cell_mesh, cell_plasmodesmata_coords
+#     )
+#     cell_plasmodesmata_indices = list(
+#         range(
+#             len(cell_mesh.vertices),
+#             len(cell_mesh.vertices) + len(cell_plasmodesmata_coords),
+#         )
+#     )
+
+#     return updated_vertices, updated_faces, cell_plasmodesmata_indices
+
+
+# ------------------------- geodesic utilities -------------------------
+
+
+def clean_mesh_for_geodesic(vertices, faces, min_area=1e-10):
+    """
+    Clean a mesh to improve geodesic computation reliability by removing degenerate faces.
+
+    Args:
+        vertices: Nx3 array of vertex positions
+        faces: Mx3 array of face indices
+        min_area: Minimum face area threshold
+
+    Returns:
+        tuple: (cleaned_vertices, cleaned_faces, num_removed)
+    """
+    mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+
+    # Remove degenerate faces (very small or zero area)
+    face_areas = mesh.area_faces
+    valid_faces_mask = face_areas >= min_area
+    num_removed = np.sum(~valid_faces_mask)
+
+    if num_removed > 0:
+        logger.warning(f"Removing {num_removed} degenerate faces with area < {min_area}")
+        mesh.update_faces(valid_faces_mask)
+
+        # After removing faces, we may have unreferenced vertices - clean them up
+        mesh.remove_unreferenced_vertices()
+
+    return mesh.vertices, mesh.faces, num_removed
+
+
+def compute_graph_distance_fallback(updated_vertices, updated_faces, mapped_indices):
+    """
+    Compute pairwise distances using graph shortest path as fallback when geodesic fails.
+
+    This is less accurate than true geodesic distance (follows edges not surface),
+    but provides a reasonable approximation when pygeodesic fails due to numerical issues.
+    """
+    try:
+        import networkx as nx
+    except ImportError:
+        raise ImportError(
+            "NetworkX is required for graph-based distance fallback. "
+            "Install with: pip install networkx"
         )
+
+    # Build graph from mesh edges
+    mesh = trimesh.Trimesh(vertices=updated_vertices, faces=updated_faces)
+    edges = mesh.edges_unique
+
+    G = nx.Graph()
+    for edge in edges:
+        v1, v2 = edge
+        dist = np.linalg.norm(updated_vertices[v1] - updated_vertices[v2])
+        G.add_edge(int(v1), int(v2), weight=dist)
+
+    # Compute pairwise distances for mapped indices
+    P = len(mapped_indices)
+    D = np.zeros((P, P), dtype=float)
+
+    for i in tqdm(range(P), desc="Graph distances (fallback)"):
+        for j in range(i, P):
+            if i == j:
+                D[i, j] = 0
+            else:
+                src = int(mapped_indices[i])
+                tgt = int(mapped_indices[j])
+                try:
+                    dist = nx.shortest_path_length(G, src, tgt, weight='weight')
+                    D[i, j] = dist
+                    D[j, i] = dist
+                except nx.NetworkXNoPath:
+                    # Vertices are in different components - should not happen
+                    D[i, j] = np.inf
+                    D[j, i] = np.inf
+
+    return D
+
+
+def compute_pairwise_geodesic_for_inputs(
+    updated_vertices, updated_faces, mapped_indices, cell_id="unknown", use_fallback=False
+):
+    """
+    Return P x P geodesic matrix for the P original input points, using mapped_indices.
+
+    Includes robustness improvements:
+    - Cleans degenerate faces before geodesic computation
+    - Provides detailed diagnostics on failure
+    - Falls back to graph-based distances if pygeodesic fails
+    - Includes cell_id in error messages for easier debugging
+
+    Args:
+        updated_vertices: Nx3 array of vertex positions
+        updated_faces: Mx3 array of face indices
+        mapped_indices: P-length array mapping plasmodesmata to vertex indices
+        cell_id: Identifier for logging/errors
+        use_fallback: If True, use graph distances when geodesic fails (default: True)
+    """
+    P = len(mapped_indices)
+
+    # Clean the mesh to remove degenerate faces that can cause geodesic failures
+    cleaned_vertices, cleaned_faces, num_removed = clean_mesh_for_geodesic(
+        updated_vertices, updated_faces
     )
 
-    return updated_vertices, updated_faces, cell_plasmodesmata_indices
+    if num_removed > 0:
+        logger.info(
+            f"Cell {cell_id}: Removed {num_removed} degenerate faces before geodesic computation"
+        )
+        # Update mapped_indices if vertices were reindexed
+        if len(cleaned_vertices) != len(updated_vertices):
+            logger.warning(
+                f"Cell {cell_id}: Vertex count changed from {len(updated_vertices)} to {len(cleaned_vertices)} "
+                f"after cleaning. This may indicate problematic mesh geometry."
+            )
+            # Trimesh.remove_unreferenced_vertices() can change vertex indices
+            # We need to remap the mapped_indices
+            # For now, raise an error if this happens
+            raise ValueError(
+                f"Cell {cell_id}: Mesh cleaning changed vertex count, which would invalidate mapped_indices. "
+                f"This indicates severe mesh quality issues."
+            )
 
+        updated_vertices = cleaned_vertices
+        updated_faces = cleaned_faces
 
-def get_geodesic_distances(vertices, faces, indices_of_interest):
-    geoalg = geodesic.PyGeodesicAlgorithmExact(vertices, faces)
+    # Initialize geodesic algorithm
+    try:
+        geoalg = geodesic.PyGeodesicAlgorithmExact(updated_vertices, updated_faces)
+    except Exception as e:
+        raise ValueError(
+            f"Cell {cell_id}: Failed to initialize pygeodesic algorithm: {e}\n"
+            f"Mesh: {len(updated_vertices)} vertices, {len(updated_faces)} faces"
+        )
 
-    n = len(indices_of_interest)
-    dist_matrix = np.zeros((n, n), dtype=float)
+    # Compute distances and collect any failures
+    D = np.zeros((P, P), dtype=float)
+    failed_pairs = []
+    reverse_fixed_count = 0
 
-    for i in range(n):
-        src = indices_of_interest[i]
-        # only compute distances to j >= i
-        target_subset = indices_of_interest[i:]
-        dists, _ = geoalg.geodesicDistances([src], target_subset)
-        # fill upper triangle
-        dist_matrix[i, i:] = dists
-        # mirror to lower triangle
-        dist_matrix[i:, i] = dists
+    for i in tqdm(range(P), desc="Geodesic distances"):
+        src = mapped_indices[i]
+        t_subset = mapped_indices[i:]
 
-    # this could be faster:
+        try:
+            dists, _ = geoalg.geodesicDistances([src], t_subset)
+        except Exception as e:
+            raise ValueError(
+                f"Cell {cell_id}: Geodesic computation crashed at source vertex {src} "
+                f"(plasmodesmata index {i}): {e}"
+            )
 
-    # d = gdist.distance_matrix_of_selected_points(
-    #     updated_vertices.astype(np.float64),
-    #     updated_faces.astype(np.int32),
-    #     np.array(indices, dtype=np.int32),
-    # ).toarray()
-    # new_dist_matrix = d[-len(indices) :, -len(indices) :]
-    return dist_matrix
+        # Check for invalid distances
+        invalid_mask = ~np.isfinite(dists)
+        if np.any(invalid_mask):
+            invalid_indices = np.where(invalid_mask)[0]
+
+            # Try reverse direction for failed pairs
+            for inv_idx in invalid_indices:
+                tgt = t_subset[inv_idx]
+                tgt_pd_idx = i + inv_idx
+
+                # Try computing distance in reverse direction
+                try:
+                    reverse_dist, _ = geoalg.geodesicDistances([tgt], [src])
+                    if np.isfinite(reverse_dist[0]):
+                        # Reverse direction worked! Use that distance
+                        dists[inv_idx] = reverse_dist[0]
+                        reverse_fixed_count += 1
+                        logger.warning(
+                            f"Cell {cell_id}: Asymmetric geodesic - "
+                            f"PD {i} (v{src}) -> PD {tgt_pd_idx} (v{tgt}) = inf, "
+                            f"but reverse = {reverse_dist[0]:.2f} nm. Using reverse. "
+                            f"This is a pygeodesic bug."
+                        )
+                    else:
+                        # Both directions failed
+                        failed_pairs.append((src, tgt, i, tgt_pd_idx))
+                except Exception:
+                    # Reverse also crashed
+                    failed_pairs.append((src, tgt, i, tgt_pd_idx))
+
+        # Check for negative distances
+        if np.any(dists < 0):
+            raise ValueError(
+                f"Cell {cell_id}: Negative geodesic distances from vertex {src}: "
+                f"{dists[dists < 0]}"
+            )
+
+        D[i, i:] = dists
+        D[i:, i] = dists
+
+    # Report if we fixed any with reverse direction
+    if reverse_fixed_count > 0:
+        logger.warning(
+            f"Cell {cell_id}: Fixed {reverse_fixed_count} asymmetric geodesic failures "
+            f"using reverse direction."
+        )
+
+    # If we found failures, provide comprehensive diagnostics before raising
+    if failed_pairs:
+        logger.error(
+            f"Cell {cell_id}: Found {len(failed_pairs)} vertex pairs with infinite geodesic distance"
+        )
+        logger.error(f"Cell {cell_id}: First 5 failed pairs:")
+        for src_v, tgt_v, src_pd, tgt_pd in failed_pairs[:5]:
+            logger.error(
+                f"  Plasmodesmata {src_pd} (vertex {src_v}) -> "
+                f"Plasmodesmata {tgt_pd} (vertex {tgt_v}): inf"
+            )
+
+        # Check mesh connectivity to diagnose the issue
+        mesh = trimesh.Trimesh(vertices=updated_vertices, faces=updated_faces)
+        components = mesh.split(only_watertight=False)
+
+        if len(components) > 1:
+            logger.error(
+                f"Cell {cell_id}: DISCONNECTED MESH - {len(components)} components detected!"
+            )
+            for i, comp in enumerate(components):
+                logger.error(
+                    f"  Component {i}: {len(comp.vertices)} vertices, {len(comp.faces)} faces"
+                )
+        else:
+            logger.error(
+                f"Cell {cell_id}: Mesh appears connected (1 component), but geodesic still failing."
+            )
+            logger.error(
+                f"  This suggests numerical precision issues or degenerate geometry."
+            )
+            logger.error(
+                f"  Possible causes: very thin triangles, nearly co-planar faces, "
+                f"or precision limits of the geodesic algorithm."
+            )
+
+        # If fallback is enabled, use graph-based distances instead
+        if use_fallback:
+            logger.warning(
+                f"Cell {cell_id}: Pygeodesic failed for {len(failed_pairs)} pairs. "
+                f"Falling back to graph-based shortest path distances."
+            )
+            logger.warning(
+                f"Cell {cell_id}: Note - graph distances follow mesh edges, not true surface geodesics. "
+                f"This is less accurate but provides a reasonable approximation."
+            )
+
+            try:
+                D = compute_graph_distance_fallback(updated_vertices, updated_faces, mapped_indices)
+                logger.info(
+                    f"Cell {cell_id}: Successfully computed distances using graph fallback."
+                )
+                # Continue with validation below
+            except Exception as fallback_error:
+                raise ValueError(
+                    f"Cell {cell_id}: Both geodesic and graph fallback failed. "
+                    f"Geodesic: {len(failed_pairs)} infinite distances. "
+                    f"Graph fallback error: {fallback_error}"
+                )
+        else:
+            raise ValueError(
+                f"Cell {cell_id}: Invalid geodesic distances computed for {len(failed_pairs)} pairs. "
+                f"First failure: vertex {failed_pairs[0][0]} -> {failed_pairs[0][1]}. "
+                f"See detailed diagnostics in logs above. "
+                f"Set use_fallback=True to use graph-based distances instead."
+            )
+
+    # Final validation
+    if not np.allclose(D, D.T, rtol=1e-5):
+        raise ValueError(f"Cell {cell_id}: Distance matrix is not symmetric")
+
+    if not np.allclose(np.diag(D), 0, atol=1e-6):
+        raise ValueError(
+            f"Cell {cell_id}: Distance matrix diagonal is not zero: {np.diag(D)}"
+        )
+
+    return D
 
 
 def measure_distribution_for_cell(
@@ -88,28 +776,163 @@ def measure_distribution_for_cell(
     Measure the distribution of plasmodesmata coordinates within a cell by first inserting them into the mesh.
     Then use pygeodesic to compute distances.
     """
-
-    updated_vertices, updated_faces, cell_plasmodesmata_indices = (
-        insert_plasmodesmata_into_mesh(cell_mesh_path, cell_plasmodesmata_coords)
-    )
-    dist_matrix = get_geodesic_distances(
-        updated_vertices, updated_faces, cell_plasmodesmata_indices
-    )
     cell_id = os.path.basename(cell_mesh_path).split(".")[0]
-    output_file = os.path.join(output_path, f"{cell_id}_distances.npy")
-    np.save(output_file, dist_matrix)
+
+    # Memory monitoring setup
+    process = psutil.Process()
+    mem_start = process.memory_info().rss / (1024 * 1024)  # MB
+
+    # Preemptive memory bounds check
+    MAX_MATRIX_SIZE_MB = 1000  # Can be adjusted based on available worker memory
+    P = len(cell_plasmodesmata_coords)
+    estimated_mb = (P * P * 8) / (1024 * 1024)  # float64 distance matrix
+
+    logger.info(
+        f"Cell {cell_id}: Processing {P} plasmodesmata, "
+        f"estimated distance matrix: {estimated_mb:.1f}MB"
+    )
+
+    if estimated_mb > MAX_MATRIX_SIZE_MB:
+        raise MemoryError(
+            f"Cell {cell_id} requires {estimated_mb:.1f}MB for distance matrix "
+            f"({P}×{P} points), exceeds limit of {MAX_MATRIX_SIZE_MB}MB. "
+            f"This cell is too large to process with current memory constraints. "
+            f"Consider: (1) increasing worker memory, (2) filtering plasmodesmata, "
+            f"or (3) implementing sparse distance computation."
+        )
+
+    # Load mesh and process
+    cell_mesh = trimesh.load(cell_mesh_path)
+    updated_vertices, updated_faces, insertion_counts, mapped_indices = (
+        insert_points_into_mesh_batch(cell_mesh, cell_plasmodesmata_coords)
+    )
+    dist_matrix = compute_pairwise_geodesic_for_inputs(
+        updated_vertices, updated_faces, mapped_indices, cell_id=cell_id
+    )
+
+    # Log peak memory usage
+    mem_peak = process.memory_info().rss / (1024 * 1024)
+    logger.info(
+        f"Cell {cell_id}: Peak memory usage: {mem_peak:.1f}MB "
+        f"(delta: {mem_peak - mem_start:.1f}MB)"
+    )
+
+    data = {
+        # Existing fields
+        "updated_vertices": updated_vertices,
+        "updated_faces": updated_faces,
+        "insertion_counts": insertion_counts,
+        "plasmodesmata_indices": mapped_indices,
+        "distance_matrix": dist_matrix,
+
+        # NEW: Validation and diagnostic info
+        "validation_metrics": {
+            "num_plasmodesmata": len(mapped_indices),
+            "num_vertices_original": len(cell_mesh.vertices),
+            "num_vertices_final": len(updated_vertices),
+            "num_vertices_added": len(updated_vertices) - len(cell_mesh.vertices),
+            "num_faces_original": len(cell_mesh.faces),
+            "num_faces_final": len(updated_faces),
+            "is_watertight": True,  # Validated during mesh validation
+            "is_winding_consistent": True,  # Validated during mesh validation
+            "num_components": 1,  # Validated during mesh validation
+            "distance_matrix_shape": dist_matrix.shape,
+            "distance_matrix_memory_mb": (dist_matrix.nbytes / (1024 * 1024)),
+            "max_geodesic_distance": float(dist_matrix.max()),
+            "mean_geodesic_distance": float(dist_matrix.mean()),
+        },
+
+        # NEW: Processing metadata
+        "processing_info": {
+            "cell_id": cell_id,
+            "cell_mesh_path": cell_mesh_path,
+            "processing_status": "success",
+            "timestamp": pd.Timestamp.now().isoformat(),
+        },
+    }
+
+    output_file = os.path.join(output_path, f"{cell_id}_distribution.pkl")
+
+    # write to pickle
+    with open(output_file, "wb") as f:
+        pickle.dump(data, f)
+
+
+def process_cell_row(row, cell_meshes_path, output_path):
+    """
+    Process a single row from the DataFrame containing cell information and plasmodesmata coordinates.
+    """
+    cell_id = row["Cell ID"]
+    cell_plasmodesmata_coords = row["plasmodesmata_coords"]
+
+    # Handle case where coordinates might be stored as different types
+    if isinstance(cell_plasmodesmata_coords, str):
+        try:
+            # Try to evaluate the string as a list/array representation
+            cell_plasmodesmata_coords = ast.literal_eval(cell_plasmodesmata_coords)
+        except (ValueError, SyntaxError):
+            logger.warning(f"Could not parse coordinates string for cell {cell_id}")
+            return cell_id
+
+    # Skip cells with no plasmodesmata
+    if cell_plasmodesmata_coords is None or len(cell_plasmodesmata_coords) == 0:
+        logger.info(f"Skipping cell {cell_id} - no plasmodesmata found")
+        return cell_id
+
+    # Ensure it's a numpy array
+    try:
+        if not isinstance(cell_plasmodesmata_coords, np.ndarray):
+            cell_plasmodesmata_coords = np.array(cell_plasmodesmata_coords)
+    except Exception as e:
+        logger.error(
+            f"Could not convert coordinates to numpy array for cell {cell_id}: {e}"
+        )
+        return cell_id
+
+    # Check if coordinates have the right shape
+    if (
+        len(cell_plasmodesmata_coords.shape) != 2
+        or cell_plasmodesmata_coords.shape[1] != 3
+    ):
+        logger.warning(
+            f"Invalid coordinate shape for cell {cell_id}: {cell_plasmodesmata_coords.shape}"
+        )
+        return cell_id
+
+    # Construct mesh file path
+    cell_mesh_path = f"{cell_meshes_path}/{cell_id}.ply"
+
+    # Check if mesh file exists
+    if not os.path.exists(cell_mesh_path):
+        logger.warning(f"Mesh file not found for cell {cell_id}: {cell_mesh_path}")
+        return cell_id
+
+    try:
+        measure_distribution_for_cell(
+            cell_plasmodesmata_coords, cell_mesh_path, output_path
+        )
+        logger.info(f"Successfully processed cell {cell_id}")
+        return cell_id
+    except Exception as e:
+        # Log error with context, then ALWAYS re-raise
+        logger.error(f"Error processing cell {cell_id}: {str(e)}", exc_info=True)
+        raise  # CRITICAL: Re-raise to stop processing immediately
+
+
+def process_partition(partition_df, cell_meshes_path, output_path):
+    """
+    Process a partition of the DataFrame.
+    """
+    results = []
+    for _, row in partition_df.iterrows():
+        result = process_cell_row(row, cell_meshes_path, output_path)
+        results.append(result)
+    return pd.DataFrame({"processed_cell_id": results})
 
 
 # %%
-
-if __name__ == "__main__":
-    # %%
-    # Initialize run properties
-    # run_properties = RunProperties()
-
-    dataset = "jrc_22ak351-leaf-3m"
-    plasmodesmata_file = f"/nrs/cellmap/ackermand/cellmap/analysisResults/leaf-gall/{dataset}/plasmodesmata_cleaned_lines_assigned_to_2_nearest_cells.csv"
-    plasmodesmata_df = pd.read_csv(plasmodesmata_file)
+def group_plasmodesmata_by_cell(plasmodesmata_csv, cell_csv):
+    plasmodesmata_df = pd.read_csv(plasmodesmata_csv)
 
     for list_column in ["Cell ID", "Cell Distance (nm)"]:
         plasmodesmata_df[list_column] = plasmodesmata_df[list_column].apply(
@@ -134,10 +957,7 @@ if __name__ == "__main__":
         ]
     ]
     # Read the corresponding cell CSV
-    cell_file = (
-        f"/nrs/cellmap/ackermand/cellmap/analysisResults/leaf-gall/{dataset}/cell.csv"
-    )
-    cell_df = pd.read_csv(cell_file)
+    cell_df = pd.read_csv(cell_csv)
     cell_df = cell_df.rename(
         columns={
             "Object ID": "Cell ID",
@@ -166,50 +986,98 @@ if __name__ == "__main__":
 
     # 2. Merge that back onto the cell DataFrame (one row per cell)
     result_df = cell_df.merge(coords_per_cell, on="Cell ID", how="left")
-    
-    
 
-    # cell_id = 364  # 390
-    # cell_plasmodesmata_coords = merged_df[merged_df["Cell ID"] == cell_id][
-    #     [
-    #         "Plasmodesmata COM Z (nm)",
-    #         "Plasmodesmata COM Y (nm)",
-    #         "Plasmodesmata COM X (nm)",
-    #     ]
-    # ].to_numpy()
+    # Convert coordinates to list of lists to avoid serialization issues with Dask
+    result_df["plasmodesmata_coords"] = result_df["plasmodesmata_coords"].apply(
+        lambda x: x.tolist() if isinstance(x, np.ndarray) else x
+    )
 
-    # # read in mesh
-    # cell_mesh_file = f"/nrs/cellmap/ackermand/new_meshes/meshes/single_resolution/leaf-gall/jrc_22ak351-leaf-3m/cell/meshes/{cell_id}.ply"
-    # cell_mesh = trimesh.load_mesh(cell_mesh_file)
-    # cell_mesh.vertices = cell_mesh.vertices[:, ::-1]  # vertices are in x,y,z
-    # num_vertices = len(cell_mesh.vertices)
-    # num_plasmodesmata = len(cell_plasmodesmata_coords)
+    # Filter out cells with no plasmodesmata for efficiency
+    cells_with_plasmodesmata = result_df.dropna(subset=["plasmodesmata_coords"])
+    return cells_with_plasmodesmata
 
-    # # Define a simple mesh: a single triangle
-    # # vertices = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
-    # # faces = np.array([[0, 1, 2]])
 
-    # # Define new points to insert (make sure they lie in the triangle)
-    # new_points = np.array([[0.3, 0.3, 0.0], [0.2, 0.5, 0.0]])
+# %%
+if __name__ == "__main__":
+    # %%
+    # Initialize run properties
+    rp = RunProperties()
+    os.chdir(rp.execution_directory)
+    with io_util.tee_streams(rp.logpath):
 
-    # updated_vertices, updated_faces = insert_points_into_mesh_original(
-    #     cell_mesh, cell_plasmodesmata_coords
-    # )
-    # # updated_vertices_new, updated_faces_new = insert_points_allow_duplicates(
-    # #     cell_mesh, cell_plasmodesmata_coords
-    # # )
+        run_config = rp.run_config
 
-    # # new_mesh = trimesh.Trimesh(
-    # #     vertices=updated_vertices, faces=updated_faces, process=False
-    # # )
-    # # new_mesh.export("new_inserted.ply")
-    # print("Updated vertices:")
-    # print(updated_vertices)
-    # print("\nUpdated faces:")
-    # print(updated_faces)
+        cells_with_plasmodesmata = group_plasmodesmata_by_cell(
+            run_config["plasmodesmata_csv"], run_config["cell_csv"]
+        )
+        print(f"Cells with plasmodesmata: {len(cells_with_plasmodesmata)}")
 
-    # # Log the execution directory and run configuration
-    # logger.info(f"Execution Directory: {run_properties.execution_directory}")
-    # logger.info(f"Run Configuration: {run_properties.run_config}")
+        # Debug: Check the first few entries
+        print("Sample plasmodesmata_coords types:")
+        for i, (idx, row) in enumerate(cells_with_plasmodesmata.head(3).iterrows()):
+            coords = row["plasmodesmata_coords"]
+            print(
+                f"Cell {row['Cell ID']}: type={type(coords)}, shape={np.array(coords).shape if coords is not None else 'None'}"
+            )  # Set up output directory
+        output_path = run_config["output_path"]
+        os.makedirs(output_path, exist_ok=True)
+
+        # Get number of workers from run properties
+        num_workers = run_config["num_workers"]
+        with dask_util.start_dask(num_workers, "processing", logger):
+            with io_util.TimingMessager("Dask processing", logger):
+
+                # Convert to Dask DataFrame with appropriate partitioning
+                # Use a reasonable partition size based on your data
+                partition_size = max(
+                    1, len(cells_with_plasmodesmata) // (num_workers * 2)
+                )
+                ddf = dd.from_pandas(
+                    cells_with_plasmodesmata,
+                    npartitions=max(1, len(cells_with_plasmodesmata) // partition_size),
+                )
+
+                # Apply the processing function to each partition
+                processed_results = ddf.map_partitions(
+                    process_partition,
+                    run_config["cell_meshes_path"],
+                    output_path,
+                    meta=pd.DataFrame({"processed_cell_id": pd.Series(dtype="int64")}),
+                )
+
+                # Compute the results
+                print("Starting parallel processing...")
+                final_results = processed_results.compute()
+                print(
+                    f"Processing completed. Processed {len(final_results)} partitions."
+                )
+                print(f"Results saved to: {output_path}")
+
+            # Save a summary of processed cells
+            summary_file = os.path.join(output_path, "processing_summary.csv")
+            final_results.to_csv(summary_file, index=False)
+            print(f"Processing summary saved to: {summary_file}")
+# %%
+# cells_with_plasmodesmata = group_plasmodesmata_by_cell(
+#     "/nrs/cellmap/ackermand/cellmap/analysisResults/leaf-gall/jrc_22ak351-leaf-3m/plasmodesmata_cleaned_lines_assigned_to_2_nearest_cells.csv",
+#     "/nrs/cellmap/ackermand/cellmap/analysisResults/leaf-gall/jrc_22ak351-leaf-3m/cell.csv",
+# )
+# print(f"Cells with plasmodesmata: {len(cells_with_plasmodesmata)}")
+
+# cell_mesh = trimesh.load(
+#     "/nrs/cellmap/ackermand/new_meshes/meshes/single_resolution/leaf-gall/jrc_22ak351-leaf-3m/cell/meshes/100.ply"
+# )
+# # %%
+# import ast
+
+# plasmodesmata_coords = np.array(
+#     cells_with_plasmodesmata[cells_with_plasmodesmata["Cell ID"] == 100][
+#         "plasmodesmata_coords"
+#     ].values[0]
+# )
+# plasmodesmata_coords = plasmodesmata_coords[:, [2, 1, 0]]  # Reorder to Z, Y, X
+# updated_vertices, updated_faces, insertion_counts, mapped_indices = (
+#     insert_points_into_mesh_batch(cell_mesh, plasmodesmata_coords)
+# )
 
 # %%
